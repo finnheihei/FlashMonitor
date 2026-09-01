@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>分光</title>
+<title>Flash Monitor</title>
 <style>
   :root {
     --bg: #f3f3f3;
@@ -96,7 +96,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>分光</h1>
+    <h1>Flash Monitor</h1>
     <nav class="nav" id="filters"></nav>
     <label class="search"><input id="q" type="search" placeholder="搜索" autocomplete="off"></label>
     <div class="rates" id="rates"></div>
@@ -526,7 +526,7 @@ function renderSettings() {
     <h2>启动</h2>
     <label class="row">
       <input type="checkbox" ${s.autostart ? "checked" : ""} onchange="saveSetting('autostart', this.checked)">
-      <div>开机自启动${note}<div class="hint">写入当前用户启动项。开机后最小化、不弹浏览器。请用要长期用的那个程序勾选（打包版请打开 FenGuang.exe 后再勾）。</div></div>
+      <div>开机自启动${note}<div class="hint">写入当前用户启动项。开机后最小化、不弹浏览器。请用要长期用的那个程序勾选（打包版请打开 FlashMonitor.exe 后再勾）。</div></div>
     </label>
     <label class="row">
       <input type="checkbox" ${s.start_minimized ? "checked" : ""} onchange="saveSetting('start_minimized', this.checked)">

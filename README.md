@@ -1,4 +1,4 @@
-# 分光
+# Flash Monitor
 
 Windows 上给 [FlClash](https://github.com/chen08209/FlClash) / Clash Meta（mihomo）用的本机流量监视。看哪个程序走代理、哪个走直连、流量去了哪个网站，以及有没有漏出 TUN。
 
@@ -9,12 +9,12 @@ Windows 上给 [FlClash](https://github.com/chen08209/FlClash) / Clash Meta（mi
 Windows PowerShell（不用装 Python）：
 
 ```powershell
-irm https://github.com/finnheihei/FenGuang/releases/latest/download/install.ps1 | iex
+irm https://github.com/finnheihei/FlashMonitor/releases/latest/download/install.ps1 | iex
 ```
 
-会下载到 `%LOCALAPPDATA%\FenGuang`，并加入开始菜单。Clash 客户端要先打开外部控制器。
+会下载到 `%LOCALAPPDATA%\FlashMonitor`，并加入开始菜单。Clash 客户端要先打开外部控制器。旧版「分光」的流量记录会自动迁过来。
 
-卸载：删掉该文件夹，以及开始菜单里的「分光」。
+卸载：删掉该文件夹，以及开始菜单里的「Flash Monitor」。
 
 ## 功能
 
@@ -46,15 +46,15 @@ python -u monitor.py --port 8787
 build.cmd
 ```
 
-生成 `dist\FenGuang.exe`。流量记录写在 exe 同目录的 `data\`。
+生成 `dist\FlashMonitor.exe`。流量记录写在 exe 同目录的 `data\`。
 
 ## 接客户端
 
 **FlClash**  
-设置里打开外部控制器。分光默认连 `http://127.0.0.1:9090`。
+设置里打开外部控制器。Flash Monitor 默认连 `http://127.0.0.1:9090`。
 
 **Clash Verge**  
-默认不开放 HTTP 接口。打开外部控制器（常见 `127.0.0.1:9097`），把地址和 secret 填进分光的「设置」。
+默认不开放 HTTP 接口。打开外部控制器（常见 `127.0.0.1:9097`），把地址和 secret 填进 Flash Monitor 的「设置」。
 
 ## 注意
 

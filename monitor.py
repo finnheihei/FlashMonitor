@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FlClash TUN 轻量流量监视：本机 127.0.0.1，无第三方依赖。"""
+"""Flash Monitor：FlClash / mihomo TUN 本机流量监视，127.0.0.1，无第三方依赖。"""
 
 from __future__ import annotations
 
@@ -22,6 +22,8 @@ from typing import Any
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
+APP_NAME = "Flash Monitor"
+APP_ID = "FlashMonitor"
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = 8787
 ACTUAL_PORT = LISTEN_PORT
@@ -51,7 +53,8 @@ PROGRAMS_FILE = DATA_DIR / "programs.json"
 SLOTS_FILE = DATA_DIR / "slots.json"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 SEEN_FILE = DATA_DIR / "seen.json"
-RUN_VALUE_NAME = "FenGuang"
+RUN_VALUE_NAME = APP_ID
+LEGACY_RUN_NAMES = ("FenGuang",)
 FAKE_IP_NETS = (
     ipaddress.ip_network("198.18.0.0/15"),
 )
@@ -215,10 +218,16 @@ def autostart_enabled() -> bool:
         import winreg
 
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run") as key:
-            val, _ = winreg.QueryValueEx(key, RUN_VALUE_NAME)
-        return bool(val)
+            for name in (RUN_VALUE_NAME, *LEGACY_RUN_NAMES):
+                try:
+                    val, _ = winreg.QueryValueEx(key, name)
+                    if val:
+                        return True
+                except OSError:
+                    continue
     except OSError:
         return False
+    return False
 
 
 def set_autostart(on: bool) -> None:
@@ -229,6 +238,11 @@ def set_autostart(on: bool) -> None:
     access = winreg.KEY_SET_VALUE
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, access) as key:
+            for name in LEGACY_RUN_NAMES:
+                try:
+                    winreg.DeleteValue(key, name)
+                except OSError:
+                    pass
             if on:
                 winreg.SetValueEx(key, RUN_VALUE_NAME, 0, winreg.REG_SZ, launch_command(autostart=True))
             else:
@@ -2178,7 +2192,7 @@ class WinTray:
             return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
         self._wndproc = wndproc
-        self._class_name = "FenGuangTray"
+        self._class_name = f"{APP_ID}Tray"
         wc = WNDCLASSW()
         wc.lpfnWndProc = wndproc
         wc.hInstance = hinst
@@ -2190,7 +2204,7 @@ class WinTray:
         hwnd = user32.CreateWindowExW(
             WS_EX_TOOLWINDOW,
             self._class_name,
-            "分光",
+            APP_NAME,
             WS_POPUP,
             0,
             0,
@@ -2212,7 +2226,7 @@ class WinTray:
         nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP
         nid.uCallbackMessage = self.WM_TRAY
         nid.hIcon = icon
-        nid.szTip = "分光"
+        nid.szTip = APP_NAME
         self._nid = nid
         shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid))
         self._ready.set()
@@ -2247,7 +2261,7 @@ def run_gui(url: str, stop: threading.Event, httpd: ThreadingHTTPServer, minimiz
     import tkinter as tk
 
     root = tk.Tk()
-    root.title("分光")
+    root.title(APP_NAME)
     root.resizable(False, False)
     if not minimized:
         try:
@@ -2257,7 +2271,7 @@ def run_gui(url: str, stop: threading.Event, httpd: ThreadingHTTPServer, minimiz
             pass
     frm = tk.Frame(root, padx=18, pady=16)
     frm.pack()
-    tk.Label(frm, text="分光正在运行", font=("Segoe UI", 12, "bold")).pack(anchor="w")
+    tk.Label(frm, text=f"{APP_NAME} 正在运行", font=("Segoe UI", 12, "bold")).pack(anchor="w")
     tk.Label(frm, text=url, fg="#1a5fb4").pack(anchor="w", pady=(2, 4))
     tk.Label(frm, text="关闭窗口会藏到托盘，采集不停。", fg="#6b6b6b").pack(anchor="w", pady=(0, 12))
     btns = tk.Frame(frm)
@@ -2293,7 +2307,7 @@ def run_gui(url: str, stop: threading.Event, httpd: ThreadingHTTPServer, minimiz
         if not balloon_once["done"]:
             balloon_once["done"] = True
             try:
-                tray.balloon("分光还在采集", "点右下角托盘图标可打开窗口。")
+                tray.balloon(f"{APP_NAME} 还在采集", "点右下角托盘图标可打开窗口。")
             except Exception:
                 pass
 
@@ -2327,13 +2341,19 @@ def run_gui(url: str, stop: threading.Event, httpd: ThreadingHTTPServer, minimiz
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="轻量监视 FlClash TUN 分流")
+    parser = argparse.ArgumentParser(description=f"{APP_NAME}：轻量监视 FlClash / mihomo TUN 分流")
     parser.add_argument("--port", type=int, default=LISTEN_PORT)
     parser.add_argument("--once", action="store_true", help="打印一次 JSON 后退出")
     parser.add_argument("--gui", action="store_true", help="弹出控制窗口（打包 exe 时默认开启）")
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--minimized", action="store_true")
     args = parser.parse_args()
+    if autostart_enabled():
+        try:
+            set_autostart(True)
+        except RuntimeError:
+            pass
+        SETTINGS.data["autostart"] = True
     global ACTUAL_PORT
     ACTUAL_PORT = args.port
     ports = load_proxy_ports(CLASH_CONFIG)
@@ -2358,7 +2378,7 @@ def main() -> int:
         except Exception:
             pass
         return 0
-    print(f"TUN 分光  {url}", flush=True)
+    print(f"{APP_NAME}  {url}", flush=True)
     print("仅本机可访问。托盘图标可打开页面；Ctrl+C 退出。", flush=True)
     tray = None
     if sys.platform == "win32":
