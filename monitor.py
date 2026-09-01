@@ -254,6 +254,61 @@ def set_autostart(on: bool) -> None:
         raise RuntimeError(f"无法写入开机启动项：{exc}") from exc
 
 
+def _ps_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _shell_folder(csidl: int) -> Path:
+    import ctypes
+
+    buf = ctypes.create_unicode_buffer(260)
+    hr = ctypes.windll.shell32.SHGetFolderPathW(None, csidl, None, 0, buf)
+    if hr:
+        raise OSError(hr)
+    return Path(buf.value)
+
+
+def write_shortcut(lnk: Path, target: str, workdir: str, desc: str) -> None:
+    lnk.parent.mkdir(parents=True, exist_ok=True)
+    cmd = (
+        "$ws = New-Object -ComObject WScript.Shell; "
+        f"$sc = $ws.CreateShortcut({_ps_quote(str(lnk))}); "
+        f"$sc.TargetPath = {_ps_quote(target)}; "
+        f"$sc.WorkingDirectory = {_ps_quote(workdir)}; "
+        f"$sc.Description = {_ps_quote(desc)}; "
+        "$sc.Save()"
+    )
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    subprocess.run(
+        ["powershell", "-NoProfile", "-STA", "-Command", cmd],
+        check=False,
+        capture_output=True,
+        creationflags=flags,
+    )
+
+
+def ensure_shortcuts() -> None:
+    if sys.platform != "win32" or not frozen():
+        return
+    target = str(Path(sys.executable).resolve())
+    workdir = str(Path(target).parent)
+    desc = f"{APP_NAME} — Clash TUN 流量监视"
+    try:
+        desktop = _shell_folder(0x0010)
+        programs = _shell_folder(0x0002)
+    except OSError:
+        return
+    for folder in (desktop, programs):
+        try:
+            (folder / "分光.lnk").unlink(missing_ok=True)
+        except OSError:
+            pass
+        try:
+            write_shortcut(folder / f"{APP_NAME}.lnk", target, workdir, desc)
+        except OSError:
+            pass
+
+
 SETTINGS = AppSettings(SETTINGS_FILE)
 
 def _run(cmd: list[str], timeout: float = 12.0) -> str:
@@ -2354,6 +2409,10 @@ def main() -> int:
         except RuntimeError:
             pass
         SETTINGS.data["autostart"] = True
+    try:
+        ensure_shortcuts()
+    except Exception:
+        pass
     global ACTUAL_PORT
     ACTUAL_PORT = args.port
     ports = load_proxy_ports(CLASH_CONFIG)

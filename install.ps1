@@ -32,16 +32,23 @@ Move-Item -Force $tmp $exePath
 Unblock-File -Path $exePath -ErrorAction SilentlyContinue
 
 $startMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
+$desktop = [Environment]::GetFolderPath("Desktop")
 Remove-Item (Join-Path $startMenu "分光.lnk") -ErrorAction SilentlyContinue
-$lnk = Join-Path $startMenu "Flash Monitor.lnk"
-$ws = New-Object -ComObject WScript.Shell
-$sc = $ws.CreateShortcut($lnk)
-$sc.TargetPath = $exePath
-$sc.WorkingDirectory = $installDir
-$sc.Description = "Flash Monitor — Clash TUN 流量监视"
-$sc.Save()
+Remove-Item (Join-Path $desktop "分光.lnk") -ErrorAction SilentlyContinue
+
+function New-FlashMonitorShortcut([string]$path) {
+    $ws = New-Object -ComObject WScript.Shell
+    $sc = $ws.CreateShortcut($path)
+    $sc.TargetPath = $exePath
+    $sc.WorkingDirectory = $installDir
+    $sc.Description = "Flash Monitor — Clash TUN 流量监视"
+    $sc.Save()
+}
+
+New-FlashMonitorShortcut (Join-Path $startMenu "Flash Monitor.lnk")
+New-FlashMonitorShortcut (Join-Path $desktop "Flash Monitor.lnk")
 
 Write-Host "已安装：$exePath"
-Write-Host "开始菜单：Flash Monitor"
+Write-Host "开始菜单和桌面已放快捷方式"
 Start-Process -FilePath $exePath -WorkingDirectory $installDir
 Write-Host "已启动。页面：http://127.0.0.1:8787/"

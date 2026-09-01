@@ -12,9 +12,9 @@ Windows PowerShell（不用装 Python）：
 irm https://github.com/finnheihei/FlashMonitor/releases/latest/download/install.ps1 | iex
 ```
 
-会下载到 `%LOCALAPPDATA%\FlashMonitor`，并加入开始菜单。Clash 客户端要先打开外部控制器。旧版「分光」的流量记录会自动迁过来。
+会下载到 `%LOCALAPPDATA%\FlashMonitor`，并在桌面和开始菜单放快捷方式。Clash 客户端要先打开外部控制器。旧版「分光」的流量记录会自动迁过来。
 
-卸载：删掉该文件夹，以及开始菜单里的「Flash Monitor」。
+卸载：删掉该文件夹，以及桌面和开始菜单里的「Flash Monitor」。
 
 ## 功能
 
