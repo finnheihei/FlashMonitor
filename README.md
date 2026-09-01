@@ -1,6 +1,6 @@
 # Flash Monitor
 
-Windows 上给 [FlClash](https://github.com/chen08209/FlClash) / Clash Meta（mihomo）用的本机流量监视。看哪个程序走代理、哪个走直连、流量去了哪个网站，以及有没有漏出 TUN。
+Windows 上给 [FlClash](https://github.com/chen08209/FlClash) / Clash Meta（mihomo）用的本机流量监视。看哪个程序走代理、哪个走直连、流量去了哪个网站。TUN 和系统代理都能用。
 
 只监听 `127.0.0.1`，运行不用装第三方库。
 
@@ -20,7 +20,7 @@ irm https://github.com/finnheihei/FlashMonitor/releases/latest/download/install.
 
 - **排行**：按程序、节点、网站；近 1 小时 / 今天 / 7 天 / 30 天 / 累计
 - **分流**：走代理、走直连分两列；点开程序能看到访问过的域名
-- **漏网**：IPv6、旁路 VPN、没进 TUN 的连接会单独标出来
+- **漏网**：开了 TUN 时，IPv6、旁路 VPN、没进 TUN 的连接会单独标出来。只开系统代理时不会把直连公网当成漏网。
 - **连接**：可断开单条 Clash 连接；第一次出现的程序会提示
 - **设置**：开机自启、托盘、日流量提醒、Clash 地址和密钥
 

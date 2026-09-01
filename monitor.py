@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Flash Monitor：FlClash / mihomo TUN 本机流量监视，127.0.0.1，无第三方依赖。"""
+"""Flash Monitor：FlClash / mihomo 本机流量监视（TUN 或系统代理），127.0.0.1，无第三方依赖。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ import ipaddress
 import json
 import os
 import re
+import shutil
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -20,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
 APP_NAME = "Flash Monitor"
 APP_ID = "FlashMonitor"
@@ -45,9 +47,52 @@ def app_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
+def data_home() -> Path:
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            return Path(local) / APP_ID / "data"
+    return app_dir() / "data"
+
+
+def migrate_legacy_data(dest: Path) -> None:
+    dest.mkdir(parents=True, exist_ok=True)
+    names = ("connections.jsonl", "programs.json", "slots.json", "seen.json", "settings.json")
+    dest_log = dest / "connections.jsonl"
+    dest_n = dest_log.stat().st_size if dest_log.is_file() else 0
+    candidates = [Path(__file__).resolve().parent / "data", app_dir() / "data"]
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        candidates.append(Path(local) / "FenGuang" / "data")
+    best: Path | None = None
+    best_n = dest_n
+    dest_res = dest.resolve()
+    for src in candidates:
+        try:
+            if not src.is_dir() or src.resolve() == dest_res:
+                continue
+        except OSError:
+            continue
+        log = src / "connections.jsonl"
+        n = log.stat().st_size if log.is_file() else 0
+        if n > best_n and n >= 100_000 and (dest_n == 0 or n >= dest_n * 2):
+            best = src
+            best_n = n
+    if best is None:
+        return
+    for name in names:
+        sp = best / name
+        if sp.is_file():
+            try:
+                shutil.copy2(sp, dest / name)
+            except OSError:
+                pass
+
+
 CLASH_CONFIG = Path(os.environ.get("APPDATA", "")) / "com.follow" / "clash" / "config.yaml"
 CLASH_API = "http://127.0.0.1:9090/connections"
-DATA_DIR = app_dir() / "data"
+DATA_DIR = data_home()
+migrate_legacy_data(DATA_DIR)
 TRAFFIC_LOG = DATA_DIR / "connections.jsonl"
 PROGRAMS_FILE = DATA_DIR / "programs.json"
 SLOTS_FILE = DATA_DIR / "slots.json"
@@ -117,6 +162,7 @@ DEFAULT_SETTINGS = {
     "retention_days": 40,
     "quota_total_mb": 0,
     "quota_program_mb": 0,
+    "sub_url": "",
 }
 
 
@@ -173,6 +219,12 @@ class AppSettings:
                 self.data["quota_program_mb"] = max(0, min(int(patch["quota_program_mb"]), 10_000_000))
             except (TypeError, ValueError):
                 self.data["quota_program_mb"] = 0
+        if "sub_url" in patch:
+            url = str(patch.get("sub_url") or "").strip()
+            if url and (url.startswith("http://") or url.startswith("https://")) and len(url) < 2000:
+                self.data["sub_url"] = url
+            else:
+                self.data["sub_url"] = ""
         self.error = ""
         try:
             if "autostart" in patch:
@@ -183,6 +235,8 @@ class AppSettings:
             self.error = str(exc)
         self.data["autostart"] = autostart_enabled()
         self.save()
+        if "sub_url" in patch:
+            schedule_subinfo_refresh(force=True)
 
     def public(self) -> dict[str, Any]:
         return {
@@ -276,6 +330,7 @@ def write_shortcut(lnk: Path, target: str, workdir: str, desc: str) -> None:
         f"$sc.TargetPath = {_ps_quote(target)}; "
         f"$sc.WorkingDirectory = {_ps_quote(workdir)}; "
         f"$sc.Description = {_ps_quote(desc)}; "
+        f"$sc.IconLocation = {_ps_quote(target + ',0')}; "
         "$sc.Save()"
     )
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -292,7 +347,7 @@ def ensure_shortcuts() -> None:
         return
     target = str(Path(sys.executable).resolve())
     workdir = str(Path(target).parent)
-    desc = f"{APP_NAME} — Clash TUN 流量监视"
+    desc = f"{APP_NAME} — Clash 流量监视"
     try:
         desktop = _shell_folder(0x0010)
         programs = _shell_folder(0x0002)
@@ -351,6 +406,62 @@ def load_proxy_ports(config: Path) -> set[int]:
             if m:
                 ports.add(int(m.group(1)))
     return ports
+
+
+DEFAULT_MIXED_PORTS = {7890}
+_LISTEN_PORT_RE = re.compile(
+    r"^(mixed-port|port|socks-port|redir-port|tproxy-port):\s*['\"]?(\d+)",
+    re.I,
+)
+
+
+def load_listen_ports(config: Path) -> set[int]:
+    ports = set(DEFAULT_MIXED_PORTS)
+    if not config.is_file():
+        return ports
+    try:
+        text = config.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ports
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith(("proxies:", "proxy-groups:", "rules:")):
+            break
+        m = _LISTEN_PORT_RE.match(line)
+        if not m:
+            continue
+        n = int(m.group(2))
+        if 1 <= n <= 65535:
+            ports.add(n)
+    return ports
+
+
+def windows_proxy_info() -> tuple[bool, set[int]]:
+    if sys.platform != "win32":
+        return False, set()
+    try:
+        import winreg
+
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
+        ) as key:
+            try:
+                enabled = bool(winreg.QueryValueEx(key, "ProxyEnable")[0])
+            except OSError:
+                enabled = False
+            try:
+                server = str(winreg.QueryValueEx(key, "ProxyServer")[0] or "")
+            except OSError:
+                server = ""
+    except OSError:
+        return False, set()
+    ports: set[int] = set()
+    for m in re.finditer(r"(?:127\.0\.0\.1|localhost|\[::1\]):(\d{1,5})", server, re.I):
+        n = int(m.group(1))
+        if 1 <= n <= 65535:
+            ports.add(n)
+    return enabled, ports
 
 
 _CMD_CACHE: dict[int, tuple[float, str]] = {}
@@ -585,6 +696,49 @@ def try_clash_payload() -> dict[str, Any]:
     return {"connections": [], "uploadTotal": 0, "downloadTotal": 0}
 
 
+_CLASH_CFG_LOCK = threading.Lock()
+_CLASH_CFG: dict[str, Any] = {"ts": 0.0, "mixed_ports": [], "tun_enable": None}
+
+
+def try_clash_configs() -> dict[str, Any]:
+    now = time.time()
+    with _CLASH_CFG_LOCK:
+        if _CLASH_CFG["ts"] and now - float(_CLASH_CFG["ts"]) < 20:
+            return {
+                "mixed_ports": set(_CLASH_CFG["mixed_ports"]),
+                "tun_enable": _CLASH_CFG["tun_enable"],
+            }
+    mixed: set[int] = set()
+    tun_enable: bool | None = None
+    for base in clash_base_urls():
+        try:
+            req = Request(base + "/configs", headers=clash_headers())
+            with urlopen(req, timeout=1.5) as resp:
+                data = json.loads(resp.read().decode("utf-8", "replace"))
+            if not isinstance(data, dict):
+                continue
+            for key in ("mixed-port", "port", "socks-port", "redir-port", "tproxy-port"):
+                try:
+                    n = int(data.get(key) or 0)
+                except (TypeError, ValueError):
+                    continue
+                if 1 <= n <= 65535:
+                    mixed.add(n)
+            tun = data.get("tun")
+            if isinstance(tun, dict):
+                tun_enable = bool(tun.get("enable"))
+            elif isinstance(tun, bool):
+                tun_enable = tun
+            break
+        except Exception:
+            continue
+    with _CLASH_CFG_LOCK:
+        _CLASH_CFG["ts"] = now
+        _CLASH_CFG["mixed_ports"] = sorted(mixed)
+        _CLASH_CFG["tun_enable"] = tun_enable
+    return {"mixed_ports": mixed, "tun_enable": tun_enable}
+
+
 def try_clash_connections() -> list[dict[str, Any]]:
     return try_clash_payload()["connections"]
 
@@ -607,6 +761,208 @@ def close_clash_connection(cid: str) -> bool:
     return False
 
 
+FLCLASH_DIR = Path(os.environ.get("APPDATA", "")) / "com.follow" / "clash"
+SUBINFO_FILE = DATA_DIR / "subinfo.json"
+SUBINFO_TTL = 300.0
+_SUBINFO_LOCK = threading.Lock()
+_SUBINFO: dict[str, Any] = {"ts": 0.0, "data": None, "fetching": False}
+
+
+def parse_subscription_userinfo(header: str) -> dict[str, int] | None:
+    text = (header or "").strip()
+    if not text:
+        return None
+    out = {"upload": 0, "download": 0, "total": 0, "expire": 0}
+    found = False
+    for part in text.replace(",", ";").split(";"):
+        if "=" not in part:
+            continue
+        key, raw = part.split("=", 1)
+        key = key.strip().lower()
+        if key not in out:
+            continue
+        try:
+            out[key] = int(float(raw.strip().strip('"')))
+            found = True
+        except ValueError:
+            continue
+    return out if found else None
+
+
+def _public_subinfo(info: dict[str, int], *, label: str, source: str) -> dict[str, Any]:
+    upload = max(0, int(info.get("upload") or 0))
+    download = max(0, int(info.get("download") or 0))
+    total = max(0, int(info.get("total") or 0))
+    return {
+        "label": label,
+        "upload": upload,
+        "download": download,
+        "total": total,
+        "used": upload + download,
+        "expire": max(0, int(info.get("expire") or 0)),
+        "source": source,
+    }
+
+
+def _load_subinfo_disk() -> dict[str, Any] | None:
+    if not SUBINFO_FILE.is_file():
+        return None
+    try:
+        raw = json.loads(SUBINFO_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    info = parse_subscription_userinfo(
+        f"upload={raw.get('upload') or 0}; download={raw.get('download') or 0}; "
+        f"total={raw.get('total') or 0}; expire={raw.get('expire') or 0}"
+    )
+    if not info:
+        return None
+    return _public_subinfo(info, label=str(raw.get("label") or ""), source=str(raw.get("source") or "cache"))
+
+
+def _save_subinfo_disk(data: dict[str, Any]) -> None:
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "label": data.get("label") or "",
+            "upload": int(data.get("upload") or 0),
+            "download": int(data.get("download") or 0),
+            "total": int(data.get("total") or 0),
+            "expire": int(data.get("expire") or 0),
+            "source": data.get("source") or "",
+            "ts": int(time.time()),
+        }
+        tmp = SUBINFO_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(SUBINFO_FILE)
+    except OSError:
+        pass
+
+
+def _flclash_current_profile() -> dict[str, Any] | None:
+    prefs = FLCLASH_DIR / "shared_preferences.json"
+    db = FLCLASH_DIR / "database.sqlite"
+    if not prefs.is_file() or not db.is_file():
+        return None
+    try:
+        blob = json.loads(prefs.read_text(encoding="utf-8"))
+        cfg = json.loads(blob.get("flutter.config") or "{}")
+        pid = int(cfg.get("currentProfileId") or 0)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not pid:
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{db.resolve().as_posix()}?mode=ro", uri=True, timeout=1.0)
+        try:
+            row = conn.execute(
+                "SELECT label, url, subscription_info FROM profiles WHERE id = ?",
+                (pid,),
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    if not row:
+        return None
+    label, url, raw_info = row
+    cached = None
+    if raw_info:
+        try:
+            parsed = json.loads(raw_info) if isinstance(raw_info, str) else raw_info
+        except (json.JSONDecodeError, TypeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            cached = parse_subscription_userinfo(
+                f"upload={parsed.get('upload') or 0}; download={parsed.get('download') or 0}; "
+                f"total={parsed.get('total') or 0}; expire={parsed.get('expire') or 0}"
+            )
+    return {"label": str(label or ""), "url": str(url or ""), "cached": cached}
+
+
+def _header_userinfo(headers) -> dict[str, int] | None:
+    if headers is None:
+        return None
+    raw = headers.get("Subscription-Userinfo") or headers.get("subscription-userinfo")
+    return parse_subscription_userinfo(str(raw or ""))
+
+
+def _fetch_sub_userinfo(url: str) -> dict[str, int] | None:
+    if not url.startswith("http://") and not url.startswith("https://"):
+        return None
+    headers = {
+        "User-Agent": "clash.meta",
+        "Accept": "*/*",
+    }
+    opener = build_opener(ProxyHandler({}))
+    for method in ("HEAD", "GET"):
+        try:
+            req = Request(url, method=method, headers=headers)
+            with opener.open(req, timeout=12.0) as resp:
+                info = _header_userinfo(resp.headers)
+                if method == "GET":
+                    try:
+                        resp.read(256)
+                    except Exception:
+                        pass
+            if info and (info["upload"] or info["download"] or info["total"]):
+                return info
+        except Exception:
+            continue
+    return None
+
+
+def subinfo_public() -> dict[str, Any] | None:
+    with _SUBINFO_LOCK:
+        data = _SUBINFO.get("data")
+        return dict(data) if isinstance(data, dict) else None
+
+
+def refresh_subinfo(*, force: bool = False) -> dict[str, Any] | None:
+    profile = _flclash_current_profile()
+    label = str((profile or {}).get("label") or "")
+    cached = (profile or {}).get("cached") if profile else None
+    live = None
+    url = str(SETTINGS.data.get("sub_url") or "").strip() or str((profile or {}).get("url") or "")
+    if url:
+        live = _fetch_sub_userinfo(url)
+    info = live or cached
+    source = "live" if live else "cache"
+    if not info:
+        with _SUBINFO_LOCK:
+            _SUBINFO["fetching"] = False
+        return None
+    data = _public_subinfo(info, label=label, source=source)
+    if source != "live" and int(data.get("used") or 0) < 10 * 1024 * 1024:
+        data = None
+    with _SUBINFO_LOCK:
+        _SUBINFO["ts"] = time.time()
+        _SUBINFO["data"] = data
+        _SUBINFO["fetching"] = False
+    if data:
+        _save_subinfo_disk(data)
+    return data
+
+
+def schedule_subinfo_refresh(*, force: bool = False) -> None:
+    now = time.time()
+    with _SUBINFO_LOCK:
+        if _SUBINFO["data"] is None:
+            disk = _load_subinfo_disk()
+            if disk:
+                _SUBINFO["data"] = disk
+                _SUBINFO["ts"] = now
+        age = now - float(_SUBINFO.get("ts") or 0)
+        if not force and _SUBINFO["data"] is not None and age < SUBINFO_TTL:
+            return
+        if _SUBINFO["fetching"]:
+            return
+        _SUBINFO["fetching"] = True
+    threading.Thread(target=lambda: refresh_subinfo(force=force), daemon=True).start()
+
+
 _SYS_TYPES = {"HTTP", "HTTPS", "SOCKS", "SOCKS5", "MIXED", "HTTPCONNECT"}
 _TUN_TYPES = {"TUN", "REDIR", "TPROXY"}
 _DIRECT_OUT = {"DIRECT", "REJECT", "PASS", "REJECT-DROP"}
@@ -626,7 +982,8 @@ def clash_to_flow(conn: dict[str, Any]) -> dict[str, Any]:
     meta = conn.get("metadata") or {}
     chains = [str(c) for c in (conn.get("chains") or [])]
     typ = str(meta.get("type") or "").upper()
-    if typ in _SYS_TYPES:
+    src = str(meta.get("sourceIP") or "")
+    if typ in _SYS_TYPES or src in {"127.0.0.1", "::1"}:
         inbound = "sysproxy"
     elif typ in _TUN_TYPES:
         inbound = "tun"
@@ -1619,6 +1976,7 @@ def classify(
     local_iface: str,
     tun_up: bool,
     default_is_tun: bool,
+    mixed_ports: set[int],
 ) -> tuple[str, str, str]:
     """Return (path, route_label, note)."""
     rip = parse_ip(conn["remote_ip"])
@@ -1626,15 +1984,18 @@ def classify(
     is_core = proc_l in CORE_NAMES
     rport = conn["remote_port"]
     lip = parse_ip(conn["local_ip"])
+    mixed = mixed_ports or DEFAULT_MIXED_PORTS
 
-    if conn["remote_ip"] in {"127.0.0.1", "::1"} and rport == 7890:
+    if conn["remote_ip"] in {"127.0.0.1", "::1"} and rport in mixed:
         return "sysproxy", "loopback", "走 mixed-port 系统代理"
     if isinstance(rip, ipaddress.IPv6Address):
         if rip.is_loopback or rip.is_link_local:
             return "local", "v6-local", "本机 IPv6"
         if is_core:
             return "direct", local_iface or "v6-core", "内核 IPv6 出口"
-        return "leak", local_iface or "v6", "IPv6 未进 TUN，可能漏出"
+        if tun_up:
+            return "leak", local_iface or "v6", "IPv6 未进 TUN，可能漏出"
+        return "bypass", local_iface or "v6", "IPv6 直出（未开 TUN）"
     if not isinstance(rip, ipaddress.IPv4Address):
         return "local", "?", "无法解析地址"
 
@@ -1659,7 +2020,9 @@ def classify(
         return "local", label, "局域网 / 本机"
 
     if kind == "vpn" or bound == "vpn":
-        return "leak", label, "公司 VPN 旁路（aTrust）"
+        if tun_up:
+            return "leak", label, "公司 VPN 旁路（aTrust）"
+        return "bypass", label, "公司 VPN（未开 TUN）"
 
     if is_core and rport in proxy_ports:
         return "proxy", label, f"节点隧道 :{rport}"
@@ -1669,14 +2032,20 @@ def classify(
         return "direct", label, "规则直连出口"
 
     # Windows 常把套接字显示成 WLAN 地址，并不代表绕过了 TUN。
-    # 只有「更具体的非 TUN 路由」才算漏出。
+    # 只有开了 TUN 且「更具体的非 TUN 路由」才算漏出。
     if kind in {"wifi", "nic"} and plen > 0:
-        return "leak", label, "更具体路由绕过 TUN"
+        if tun_up:
+            return "leak", label, "更具体路由绕过 TUN"
+        return "bypass", label, "直出（未开 TUN）"
     if kind == "tun" or bound == "tun" or (tun_up and default_is_tun):
         return "tun", label, "已进 TUN"
     if kind in {"wifi", "nic"}:
-        return "leak", label, "未走 TUN 的公网连接"
-    return "tun", label, "已进 TUN"
+        if tun_up:
+            return "leak", label, "未走 TUN 的公网连接"
+        return "bypass", label, "直出（未开 TUN）"
+    if tun_up:
+        return "tun", label, "已进 TUN"
+    return "bypass", label, "直出（未开 TUN）"
 
 
 def attach_original_process(flows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1738,6 +2107,9 @@ def snapshot(proxy_ports: set[int]) -> dict[str, Any]:
     conns = parse_netstat()
     payload = try_clash_payload()
     clash_conns = payload["connections"]
+    clash_cfg = try_clash_configs()
+    win_proxy, win_ports = windows_proxy_info()
+    mixed_ports = load_listen_ports(CLASH_CONFIG) | set(clash_cfg.get("mixed_ports") or []) | win_ports | set(DEFAULT_MIXED_PORTS)
 
     routes = netinfo.get("routes") or []
     if isinstance(routes, dict):
@@ -1759,7 +2131,8 @@ def snapshot(proxy_ports: set[int]) -> dict[str, Any]:
     if v4def:
         default_v4 = f"{v4def.get('InterfaceAlias')} → {v4def.get('NextHop')}"
 
-    tun_up = str(netinfo.get("tunStatus") or "").lower() in {"up"}
+    adapter_up = str(netinfo.get("tunStatus") or "").lower() in {"up"}
+    tun_up = adapter_up or clash_cfg.get("tun_enable") is True
     default_is_tun = bool(v4def) and iface_kind(str(v4def.get("InterfaceAlias") or "")) == "tun"
 
     flows = []
@@ -1768,16 +2141,16 @@ def snapshot(proxy_ports: set[int]) -> dict[str, Any]:
         proc = names.get(c["pid"]) or f"pid:{c['pid']}"
         local_iface = ip_to_iface.get(c["local_ip"], "")
         path, route, note = classify(
-            c, proc, routes, proxy_ports, local_iface, tun_up, default_is_tun
+            c, proc, routes, proxy_ports, local_iface, tun_up, default_is_tun, mixed_ports
         )
         remote = f"{c['remote_ip']}:{c['remote_port']}"
-        if path == "internal":
+        if path in {"internal", "bypass"}:
             continue
         inbound = path if path in {"sysproxy", "tun", "leak", "local"} else ""
         outbound = path if path in {"proxy", "direct"} else ("unknown" if path == "sysproxy" else "")
         note_out = note
         if path == "sysproxy":
-            note_out = "进了 7890，最终直连还是走节点要 Clash 连接接口才能看"
+            note_out = "进了系统代理端口，最终直连还是走节点要 Clash 连接接口才能看"
         flows.append(
             {
                 "path": path,
@@ -1888,17 +2261,31 @@ def snapshot(proxy_ports: set[int]) -> dict[str, Any]:
         "all": STORE.ranking("all"),
     }
     leaks = leak_summary(flows)
+    sysproxy_on = bool(win_proxy) or any(
+        f.get("inbound") == "sysproxy" or f.get("path") == "sysproxy" for f in flows
+    )
+    if tun_up and sysproxy_on:
+        mode = "both"
+    elif tun_up:
+        mode = "tun"
+    elif sysproxy_on:
+        mode = "sysproxy"
+    else:
+        mode = "off"
     return {
         "ts": int(time.time()),
         "ms": int((time.perf_counter() - t0) * 1000),
         "status": {
             "tun_up": tun_up,
+            "sysproxy": sysproxy_on,
+            "mode": mode,
             "tun_name": netinfo.get("tunName") or "FlClash",
             "tun_ip": netinfo.get("tunIp") or "",
             "default_v4": default_v4,
             "nodes": nodes[:4],
             "clash_api": bool(clash_conns),
             "proxy_ports": sorted(proxy_ports)[:12],
+            "mixed_ports": sorted(mixed_ports)[:8],
             "upload_total": payload.get("uploadTotal") or 0,
             "download_total": payload.get("downloadTotal") or 0,
             "logged": STORE.logged,
@@ -1914,7 +2301,8 @@ def snapshot(proxy_ports: set[int]) -> dict[str, Any]:
         "history": STORE.history_rows(),
         "rank": rank,
         "leaks": leaks,
-        "alerts": build_alerts(rank["today"], leaks, STORE.recent_new()),
+        "alerts": build_alerts(rank["today"], leaks if tun_up else {"count": 0, "rows": []}, STORE.recent_new()),
+        "sub": subinfo_public(),
     }
 
 
@@ -2097,6 +2485,10 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.dumps({"ok": ok > 0, "closed": ok}, ensure_ascii=False).encode("utf-8")
             self._send(200 if ok else 502, payload, "application/json; charset=utf-8")
             return
+        if path == "/api/refresh-sub":
+            threading.Thread(target=lambda: refresh_subinfo(force=True), daemon=True).start()
+            self._send(200, b'{"ok":true}', "application/json; charset=utf-8")
+            return
         if path == "/api/ack-new":
             body = self._read_json_body()
             STORE.ack_new(str(body.get("process") or ""))
@@ -2106,8 +2498,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def poller(ports: set[int], stop: threading.Event) -> None:
+    schedule_subinfo_refresh(force=True)
     while not stop.is_set():
         try:
+            schedule_subinfo_refresh()
             snap = snapshot(ports)
             with Handler.lock:
                 Handler.cache["snap"] = snap
@@ -2201,9 +2595,24 @@ class WinTray:
         WS_EX_TOOLWINDOW = 0x00000080
 
         hinst = kernel32.GetModuleHandleW(None)
-        shell32.ExtractIconW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR, wintypes.UINT]
-        shell32.ExtractIconW.restype = ctypes.c_void_p
-        icon = shell32.ExtractIconW(hinst, sys.executable, 0) or 0
+        IMAGE_ICON, LR_LOADFROMFILE = 1, 0x0010
+        user32.LoadImageW.argtypes = [
+            wintypes.HINSTANCE,
+            wintypes.LPCWSTR,
+            wintypes.UINT,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.UINT,
+        ]
+        user32.LoadImageW.restype = wintypes.HANDLE
+        icon = 0
+        ico = resource_dir() / "icon.ico"
+        if ico.is_file():
+            icon = user32.LoadImageW(None, str(ico), IMAGE_ICON, 16, 16, LR_LOADFROMFILE) or 0
+        if not icon:
+            shell32.ExtractIconW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR, wintypes.UINT]
+            shell32.ExtractIconW.restype = ctypes.c_void_p
+            icon = shell32.ExtractIconW(hinst, sys.executable, 0) or 0
         if not icon:
             user32.LoadIconW.argtypes = [wintypes.HINSTANCE, ctypes.c_void_p]
             user32.LoadIconW.restype = wintypes.HANDLE
@@ -2318,6 +2727,12 @@ def run_gui(url: str, stop: threading.Event, httpd: ThreadingHTTPServer, minimiz
     root = tk.Tk()
     root.title(APP_NAME)
     root.resizable(False, False)
+    ico = resource_dir() / "icon.ico"
+    if ico.is_file():
+        try:
+            root.iconbitmap(str(ico))
+        except tk.TclError:
+            pass
     if not minimized:
         try:
             root.attributes("-topmost", True)
@@ -2396,7 +2811,7 @@ def run_gui(url: str, stop: threading.Event, httpd: ThreadingHTTPServer, minimiz
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=f"{APP_NAME}：轻量监视 FlClash / mihomo TUN 分流")
+    parser = argparse.ArgumentParser(description=f"{APP_NAME}：轻量监视 FlClash / mihomo 分流（TUN 或系统代理）")
     parser.add_argument("--port", type=int, default=LISTEN_PORT)
     parser.add_argument("--once", action="store_true", help="打印一次 JSON 后退出")
     parser.add_argument("--gui", action="store_true", help="弹出控制窗口（打包 exe 时默认开启）")

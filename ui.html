@@ -87,6 +87,12 @@
   .quota p:last-child { margin: 0; }
   .quota .leak-line { color: #c42b1c; cursor: pointer; }
   .quota .new-line button { margin-left: 8px; padding: 1px 8px; }
+  .airport { background: var(--panel); border: 1px solid var(--line); padding: 8px 10px; margin: 0 0 10px; }
+  .airport p { margin: 0 0 4px; }
+  .airport p:last-child { margin: 0; }
+  .airport .hint { color: var(--mute); font-size: 12px; }
+  .airport .bar { margin-top: 6px; }
+  .airport button { margin-left: 8px; padding: 1px 8px; cursor: pointer; background: var(--panel); border: 1px solid var(--line); }
   .leak-tag { color: #c42b1c; font-weight: 600; }
   .act { text-align: right; white-space: nowrap; width: 3.5em; }
   .act button { padding: 1px 8px; cursor: pointer; background: var(--panel); border: 1px solid var(--line); }
@@ -102,6 +108,7 @@
     <div class="rates" id="rates"></div>
   </header>
   <p class="meta" id="status">采集中…</p>
+  <div id="airport" class="airport" hidden></div>
   <div id="quota" class="quota" hidden></div>
   <div class="tools">
     <div class="period" id="rank-modes"></div>
@@ -211,6 +218,11 @@ function fmtBytes(n) {
   let i = 0;
   while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
   return (i === 0 ? Math.round(n) : n.toFixed(1)) + " " + u[i];
+}
+function fmtQuota(n) {
+  n = Number(n || 0);
+  if (n >= 1024 * 1024 * 1024) return (n / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+  return fmtBytes(n);
 }
 function fmtSpeed(n) {
   n = Number(n || 0);
@@ -486,6 +498,7 @@ function renderConns(rows) {
       let tag = `<span class="down">直连</span>`;
       if (f.path === "leak") tag = `<span class="leak-tag">漏网</span>`;
       else if (f.outbound === "proxy") tag = `<span class="proxy">代理</span> ${escapeHtml(f.node || "")}`;
+      else if (f.inbound === "sysproxy" || f.path === "sysproxy") tag = `<span class="proxy">系统代理</span>`;
       const kill = live && ids.length ? `<td class="act"><button type="button" data-close="${escapeHtml(ids.join(","))}">断</button></td>` : (live ? "<td></td>" : "");
       return `<tr>
       <td>${tag}</td>
@@ -544,12 +557,12 @@ function renderSettings() {
     <div class="field">
       <label>Clash 接口</label>
       <input type="text" value="${escapeHtml(s.clash_api || "")}" onchange="saveSetting('clash_api', this.value)">
-      <div class="hint">默认 http://127.0.0.1:9090 。FlClash 里打开外部控制器后才能按程序/网站分流。</div>
+      <div class="hint">默认 http://127.0.0.1:9090 。FlClash 里打开外部控制器后才能按程序/网站分流。TUN 不是必须的：只开系统代理同样能看哪个程序走节点、哪个直连。顶部「机场」数字来自当前订阅的 Subscription-Userinfo，和机场面板同一套账；本机排行只统计开机后采到的连接。</div>
     </div>
     <div class="field">
-      <label>Clash 密钥</label>
-      <input type="password" value="${escapeHtml(s.clash_secret || "")}" autocomplete="off" onchange="saveSetting('clash_secret', this.value)">
-      <div class="hint">对应 FlClash / Clash 的 secret。没有设密码就留空。</div>
+      <label>机场订阅（可选）</label>
+      <input type="password" value="${escapeHtml(s.sub_url || "")}" autocomplete="off" onchange="saveSetting('sub_url', this.value)">
+      <div class="hint">填机场给 Clash 的原始订阅地址，顶部会显示和面板一样的 已用/总量、上传、下载。转换器链接通常没有这组数字。不填则尝试读 FlClash 当前配置。</div>
     </div>
     <div class="field">
       <label>排行数据保留天数</label>
@@ -575,14 +588,45 @@ function paintChrome() {
   if (!last) return;
   const s = last.status || {};
   document.getElementById("rates").textContent = `↓ ${fmtSpeed(s.down_speed)}  ↑ ${fmtSpeed(s.up_speed)}`;
+  const mode = s.mode === "both" || (s.tun_up && s.sysproxy)
+    ? "TUN + 系统代理"
+    : (s.tun_up || s.mode === "tun")
+      ? "TUN 开"
+      : (s.sysproxy || s.mode === "sysproxy")
+        ? "系统代理"
+        : "未接管";
   const bits = [
-    s.tun_up ? "TUN 开" : "TUN 未接管",
+    mode,
     s.clash_api ? "已接 Clash" : "未接 Clash 接口",
-    (s.leak_n ? "漏网 " + s.leak_n : ""),
+    (s.tun_up && s.leak_n ? "漏网 " + s.leak_n : ""),
     (s.nodes || []).join(" · ") || "无节点",
     new Date((last.ts || 0) * 1000).toLocaleTimeString()
   ].filter(Boolean);
   document.getElementById("status").textContent = bits.join("  ·  ");
+  const boxA = document.getElementById("airport");
+  const sub = last.sub || {};
+  const used = Number(sub.used || 0);
+  const total = Number(sub.total || 0);
+  if (!total && !used) {
+    boxA.hidden = false;
+    boxA.innerHTML = `<p><b>机场</b> 还没读到账期流量（你面板上是 已用/总量，上传、下载）
+      <button type="button" data-refresh-sub="1">刷新</button></p>
+      <p class="hint">FlClash 当前订阅如果是转换器，通常没有这组头。到「设置」填机场原始 Clash 订阅后，这里会显示和面板一样的数字。本机排行只统计采集到的连接，对不齐是正常的。</p>`;
+  } else {
+    const pct = total ? Math.min(100, Math.round(1000 * used / total) / 10) : 0;
+    let expire = "";
+    if (sub.expire) {
+      const d = new Date(Number(sub.expire) * 1000);
+      if (!Number.isNaN(d.getTime())) expire = " · 到期 " + d.toLocaleDateString("zh-CN");
+    }
+    const name = sub.label ? escapeHtml(sub.label) + " · " : "";
+    boxA.hidden = false;
+    boxA.innerHTML = `<p><b>机场</b> ${name}${fmtQuota(used)} / ${fmtQuota(total)}（${pct}%）
+      <button type="button" data-refresh-sub="1">刷新</button></p>
+      <p>上传 ${fmtQuota(sub.upload || 0)} · 下载 ${fmtQuota(sub.download || 0)}${expire}</p>
+      <span class="bar"><i style="width:${Math.max(2, pct)}%"></i></span>
+      <p class="hint">和机场面板同一套账。本机排行只统计采集到的连接，对不齐是正常的。</p>`;
+  }
   const boxQ = document.getElementById("quota");
   const alerts = last.alerts || [];
   if (!alerts.length) {
@@ -592,6 +636,7 @@ function paintChrome() {
     boxQ.hidden = false;
     boxQ.innerHTML = alerts.map(a => {
       if (a.kind === "leak") {
+        if (!s.tun_up) return "";
         const names = (a.names || []).map(n => labelOf(n)).join("、");
         return `<p class="leak-line" data-open-leaks="1"><b>漏网 ${a.count}</b>${names ? " · " + escapeHtml(names) : ""}，点这里看连接</p>`;
       }
@@ -645,6 +690,11 @@ function setFilter(id) {
   [...box.children].forEach(x => x.classList.toggle("on", x.textContent === (FILTERS.find(f => f[0] === id) || [])[1]));
   render();
 }
+document.getElementById("airport").addEventListener("click", async (e) => {
+  if (!e.target.closest("[data-refresh-sub]")) return;
+  await fetch("/api/refresh-sub", { method: "POST" });
+  setTimeout(tick, 800);
+});
 document.getElementById("quota").addEventListener("click", async (e) => {
   if (e.target.closest("[data-open-leaks]")) {
     leakOnly = true;

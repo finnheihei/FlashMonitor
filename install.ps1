@@ -41,7 +41,8 @@ function New-FlashMonitorShortcut([string]$path) {
     $sc = $ws.CreateShortcut($path)
     $sc.TargetPath = $exePath
     $sc.WorkingDirectory = $installDir
-    $sc.Description = "Flash Monitor — Clash TUN 流量监视"
+    $sc.Description = "Flash Monitor — Clash 流量监视"
+    $sc.IconLocation = "$exePath,0"
     $sc.Save()
 }
 
