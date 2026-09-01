@@ -4,6 +4,18 @@ Windows 上给 [FlClash](https://github.com/chen08209/FlClash) / Clash Meta（mi
 
 只监听 `127.0.0.1`，运行不用装第三方库。
 
+## 快速安装
+
+Windows PowerShell（不用装 Python）：
+
+```powershell
+irm https://github.com/finnheihei/FenGuang/releases/latest/download/install.ps1 | iex
+```
+
+会下载到 `%LOCALAPPDATA%\FenGuang`，并加入开始菜单。Clash 客户端要先打开外部控制器。
+
+卸载：删掉该文件夹，以及开始菜单里的「分光」。
+
 ## 功能
 
 - **排行**：按程序、节点、网站；近 1 小时 / 今天 / 7 天 / 30 天 / 累计
@@ -12,7 +24,7 @@ Windows 上给 [FlClash](https://github.com/chen08209/FlClash) / Clash Meta（mi
 - **连接**：可断开单条 Clash 连接；第一次出现的程序会提示
 - **设置**：开机自启、托盘、日流量提醒、Clash 地址和密钥
 
-## 运行
+## 从源码运行
 
 需要 **Python 3.11+** 和已打开外部控制器的 Clash 客户端。
 
