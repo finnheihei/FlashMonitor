@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>分光</title>
+<style>
+  :root {
+    --bg: #f3f3f3;
+    --panel: #fff;
+    --line: #ddd;
+    --ink: #1f1f1f;
+    --mute: #6b6b6b;
+    --proxy: #0078d4;
+    --direct: #107c10;
+    --up: #c23900;
+    --bar: #d0d0d0;
+    --sel: #e8f1fa;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  body { font: 13px/1.45 "Segoe UI", "PingFang SC", sans-serif; }
+  button, input, select { font: inherit; color: inherit; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 16px 18px 28px; }
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  .nav { display: flex; gap: 2px; }
+  .nav button, .period button, .tools button, .tools select {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .nav button.on, .period button.on { background: var(--sel); border-color: #99c9ef; }
+  .search { flex: 1; min-width: 160px; }
+  .search input {
+    width: 100%; border: 1px solid var(--line); padding: 5px 8px; background: #fff;
+  }
+  .rates { color: var(--mute); font-variant-numeric: tabular-nums; }
+  .meta { color: var(--mute); font-size: 12px; margin: 0 0 10px; }
+  .period { display: flex; gap: 2px; flex-wrap: wrap; }
+  .tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  .chart-box { background: var(--panel); border: 1px solid var(--line); margin-bottom: 10px; }
+  .chart-head { display: flex; justify-content: space-between; padding: 8px 10px 0; color: var(--mute); font-size: 12px; }
+  .legend span { margin-left: 12px; }
+  .chart-wrap { position: relative; }
+  #chart { display: block; width: 100%; height: 120px; }
+  #chart-tip {
+    position: absolute; top: 8px; left: 8px; background: #fff;
+    border: 1px solid var(--line); padding: 4px 6px; font-size: 11px;
+    font-variant-numeric: tabular-nums; pointer-events: none;
+  }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); }
+  th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--line); }
+  th { color: var(--mute); font-weight: 600; font-size: 12px; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .bar { display: block; height: 4px; background: var(--bar); margin-top: 4px; }
+  .bar i { display: block; height: 100%; background: var(--proxy); }
+  .bar i.d { background: var(--direct); }
+  .rk { color: var(--mute); width: 2em; }
+  .foldable { cursor: pointer; }
+  .site td:nth-child(2) { padding-left: 22px; color: var(--mute); }
+  .empty { color: var(--mute); padding: 24px; text-align: center; }
+  .down { color: var(--direct); }
+  .proxy { color: var(--proxy); }
+  .up { color: var(--up); }
+  .sum { color: var(--mute); font-size: 12px; margin: 0 0 8px; }
+  .settings { background: var(--panel); border: 1px solid var(--line); padding: 16px 18px; max-width: 560px; }
+  .settings h2 { margin: 18px 0 8px; font-size: 13px; font-weight: 600; }
+  .settings h2:first-child { margin-top: 0; }
+  .settings .row { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0; cursor: pointer; }
+  .settings .row input { margin-top: 3px; }
+  .settings .hint { color: var(--mute); font-size: 12px; margin: 2px 0 0; }
+  .settings .field { margin: 12px 0; }
+  .settings .field label { display: block; margin-bottom: 4px; }
+  .settings input[type=text], .settings input[type=number], .settings input[type=password] {
+    width: 100%; border: 1px solid var(--line); padding: 5px 8px; background: #fff;
+  }
+  .settings .path { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; word-break: break-all; color: var(--mute); }
+  .settings .ok { color: var(--direct); font-size: 12px; margin-left: 8px; }
+  .settings .err { color: #c42b1c; font-size: 12px; }
+  .quota { background: #fff4ce; border: 1px solid #e0c36e; padding: 8px 10px; margin: 0 0 10px; }
+  .quota p { margin: 0 0 4px; }
+  .quota p:last-child { margin: 0; }
+  .quota .leak-line { color: #c42b1c; cursor: pointer; }
+  .quota .new-line button { margin-left: 8px; padding: 1px 8px; }
+  .leak-tag { color: #c42b1c; font-weight: 600; }
+  .act { text-align: right; white-space: nowrap; width: 3.5em; }
+  .act button { padding: 1px 8px; cursor: pointer; background: var(--panel); border: 1px solid var(--line); }
+  @media (max-width: 800px) { .hide-sm { display: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>分光</h1>
+    <nav class="nav" id="filters"></nav>
+    <label class="search"><input id="q" type="search" placeholder="搜索" autocomplete="off"></label>
+    <div class="rates" id="rates"></div>
+  </header>
+  <p class="meta" id="status">采集中…</p>
+  <div id="quota" class="quota" hidden></div>
+  <div class="tools">
+    <div class="period" id="rank-modes"></div>
+    <div class="period" id="periods"></div>
+    <select id="sort">
+      <option value="traffic">按流量</option>
+      <option value="speed">按速率</option>
+      <option value="name">按名称</option>
+    </select>
+    <button type="button" id="btn-export">导出 CSV</button>
+    <button type="button" id="btn-reset">清零累计</button>
+  </div>
+  <section class="chart-box">
+    <div class="chart-head">
+      <span>速率</span>
+      <div class="legend">
+        <span class="proxy">代理↓</span>
+        <span class="down">直连↓</span>
+        <span class="up">上传↑</span>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="chart"></canvas>
+      <div id="chart-tip" hidden></div>
+    </div>
+  </section>
+  <div id="main"></div>
+</div>
+<script>
+const FILTERS = [["rank","排行"],["lanes","分流"],["conns","连接"],["closed","已结束"],["settings","设置"]];
+const PERIODS = [["1h","近 1 小时"],["today","今天"],["7d","近 7 天"],["30d","近 30 天"],["all","累计"]];
+const NAMES = {
+  msedge:"Edge", chrome:"Chrome", firefox:"Firefox", msedgewebview2:"WebView",
+  Weixin:"微信", WeChatAppEx:"微信", JianyingPro:"剪映", language_server:"Antigravity",
+  Cursor:"Cursor", steam:"Steam", python:"Python", ssh:"SSH",
+  node:"Node.js",
+  MpDefenderCoreService:"Defender"
+};
+let filter = "rank";
+let period = "today";
+let rankMode = "proxy";
+let leakOnly = false;
+let last = null;
+let settingsCache = null;
+let settingsNote = "";
+const opened = new Set();
+let hoverIdx = -1;
+const box = document.getElementById("filters");
+FILTERS.forEach(([id, label]) => {
+  const b = document.createElement("button");
+  b.textContent = label;
+  if (id === filter) b.className = "on";
+  b.onclick = async () => {
+    filter = id;
+    if (id !== "conns") leakOnly = false;
+    [...box.children].forEach(x => x.classList.toggle("on", x.textContent === label));
+    if (id === "settings") await loadSettings();
+    render();
+  };
+  box.appendChild(b);
+});
+const RANK_MODES = [["proxy","代理用量"],["node","节点"],["site","网站"],["all","全部流量"]];
+const mbox = document.getElementById("rank-modes");
+RANK_MODES.forEach(([id, label]) => {
+  const b = document.createElement("button");
+  b.textContent = label;
+  if (id === rankMode) b.className = "on";
+  b.onclick = () => {
+    rankMode = id;
+    [...mbox.children].forEach(x => x.classList.toggle("on", x.textContent === label));
+    render();
+  };
+  mbox.appendChild(b);
+});
+const pbox = document.getElementById("periods");
+PERIODS.forEach(([id, label]) => {
+  const b = document.createElement("button");
+  b.textContent = label;
+  if (id === period) b.className = "on";
+  b.onclick = () => {
+    period = id;
+    [...pbox.children].forEach(x => x.classList.toggle("on", x.textContent === label));
+    render();
+  };
+  pbox.appendChild(b);
+});
+document.getElementById("q").addEventListener("input", render);
+document.getElementById("sort").addEventListener("change", render);
+document.getElementById("btn-export").onclick = () => { location.href = "/api/export.csv"; };
+document.getElementById("btn-reset").onclick = async () => {
+  if (!confirm("清零累计和排行时段数据？连接记录文件不会删除。")) return;
+  await fetch("/api/reset", { method: "POST" });
+  opened.clear();
+  tick();
+};
+function query() { return (document.getElementById("q").value || "").trim().toLowerCase(); }
+function hit(...parts) {
+  const q = query();
+  if (!q) return true;
+  return parts.some(p => String(p || "").toLowerCase().includes(q));
+}
+function labelOf(p) { return NAMES[p] || p; }
+function fmtBytes(n) {
+  n = Number(n || 0);
+  if (!n) return "0";
+  const u = ["B","KB","MB","GB","TB"];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i === 0 ? Math.round(n) : n.toFixed(1)) + " " + u[i];
+}
+function fmtSpeed(n) {
+  n = Number(n || 0);
+  if (n < 8) return "0";
+  return fmtBytes(n) + "/s";
+}
+function drawChart() {
+  const hist = (last && last.history) || [];
+  const canvas = document.getElementById("chart");
+  const tip = document.getElementById("chart-tip");
+  if (!canvas) return;
+  const wrap = canvas.parentElement;
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.max(wrap.clientWidth, 120);
+  const h = 120;
+  canvas.width = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
+  canvas.style.width = w + "px";
+  canvas.style.height = h + "px";
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const pad = { l: 8, r: 8, t: 8, b: 16 };
+  if (hist.length < 2) {
+    ctx.fillStyle = "#6b6b6b";
+    ctx.fillText("还没有速率样本", pad.l, 60);
+    if (tip) tip.hidden = true;
+    return;
+  }
+  const pd = hist.map(p => Number(p.proxy_down || 0));
+  const dd = hist.map(p => Number(p.direct_down || 0));
+  const up = hist.map(p => Number(p.up || 0));
+  const stack = pd.map((v, i) => v + dd[i]);
+  const max = Math.max(1, ...stack, ...up);
+  const innerW = w - pad.l - pad.r;
+  const innerH = h - pad.t - pad.b;
+  const xAt = i => pad.l + (i / (hist.length - 1)) * innerW;
+  const yAt = v => pad.t + innerH - (v / max) * innerH;
+  function band(bottom, top, color) {
+    ctx.beginPath();
+    ctx.moveTo(xAt(0), yAt(bottom[0]));
+    for (let i = 1; i < hist.length; i++) ctx.lineTo(xAt(i), yAt(bottom[i]));
+    for (let i = hist.length - 1; i >= 0; i--) ctx.lineTo(xAt(i), yAt(top[i]));
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+  const zero = dd.map(() => 0);
+  band(zero, dd, "rgba(16,124,16,0.28)");
+  band(dd, stack, "rgba(0,120,212,0.32)");
+  ctx.beginPath();
+  ctx.moveTo(xAt(0), yAt(up[0]));
+  for (let i = 1; i < hist.length; i++) ctx.lineTo(xAt(i), yAt(up[i]));
+  ctx.strokeStyle = "#c23900";
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
+  ctx.fillStyle = "#6b6b6b";
+  ctx.fillText(fmtBytes(max) + "/s", pad.l, 12);
+  if (hoverIdx >= 0 && hoverIdx < hist.length && tip) {
+    const hx = xAt(hoverIdx);
+    ctx.strokeStyle = "#bbb";
+    ctx.beginPath(); ctx.moveTo(hx, pad.t); ctx.lineTo(hx, pad.t + innerH); ctx.stroke();
+    const p = hist[hoverIdx];
+    tip.hidden = false;
+    tip.innerHTML = `代理 ${fmtBytes(p.proxy_down)}/s · 直连 ${fmtBytes(p.direct_down)}/s · 上传 ${fmtBytes(p.up)}/s`;
+    tip.style.left = Math.min(Math.max(hx + 8, 8), w - 280) + "px";
+  } else if (tip) tip.hidden = true;
+}
+function whyOf(p) {
+  const cmd = (p && (p.cmd || p.path)) || "";
+  return cmd ? `<div class="meta">${escapeHtml(cmd)}</div>` : "";
+}
+function rankSiteRows(r, proxyMode) {
+  const sites = r.sites || [];
+  const key = "rank:" + r.process;
+  const open = opened.has(key);
+  const kids = (!sites.length || !open) ? [] : sites.map(s => {
+    const pup = Number(s.proxy_up || 0);
+    const pdown = Number(s.proxy_down || 0);
+    const tot = Number(s.download || 0) + Number(s.upload || 0);
+    if (proxyMode) {
+      if (!pup && !pdown) return "";
+      return `<tr class="site">
+        <td></td>
+        <td>${escapeHtml(s.site)}</td>
+        <td class="num proxy">${fmtBytes(pdown)}</td>
+        <td class="num up">${fmtBytes(pup)}</td>
+        <td class="num">${fmtBytes(pdown + pup)}</td>
+        <td></td>
+      </tr>`;
+    }
+    return `<tr class="site">
+      <td></td>
+      <td>${escapeHtml(s.site)}</td>
+      <td class="num proxy">${fmtBytes(s.proxy_down)}</td>
+      <td class="num down">${fmtBytes(s.direct_down)}</td>
+      <td class="num up">${fmtBytes(s.upload)}</td>
+      <td class="num">${fmtBytes(tot)}</td>
+      <td></td>
+    </tr>`;
+  }).filter(Boolean);
+  return { key, sites, open, kids };
+}
+function sortRows(rows) {
+  const mode = document.getElementById("sort").value;
+  const copy = rows.slice();
+  if (mode === "name") copy.sort((a, b) => labelOf(a.process).localeCompare(labelOf(b.process), "zh"));
+  else if (mode === "speed") copy.sort((a, b) => (b.down_speed + b.up_speed) - (a.down_speed + a.up_speed));
+  else copy.sort((a, b) => (b.download + b.upload) - (a.download + a.upload));
+  return copy;
+}
+function renderRank() {
+  const pack = ((last.rank || {})[period]) || { rows: [], upload: 0, download: 0 };
+  const proxyTot = Number(pack.proxy_download || 0) + Number(pack.proxy_upload || 0);
+  const allTot = Number(pack.download || 0) + Number(pack.upload || 0);
+  const label = (PERIODS.find(p => p[0] === period) || [])[1] || "";
+  const q = query();
+  const proxyMode = rankMode === "proxy";
+  let rows = (pack.rows || []).slice();
+  if (proxyMode) rows = rows.filter(r => Number(r.proxy_total || (r.proxy_up + r.proxy_down)) > 0);
+  if (q) rows = rows.filter(r => hit(r.process, labelOf(r.process)));
+  if (proxyMode) {
+    rows.sort((a, b) => Number(b.proxy_total || (b.proxy_up + b.proxy_down)) - Number(a.proxy_total || (a.proxy_up + a.proxy_down)));
+  }
+  const sum = `<p class="sum">${label} 代理 ${fmtBytes(proxyTot)}（↓ ${fmtBytes(pack.proxy_download || 0)} · ↑ ${fmtBytes(pack.proxy_upload || 0)}） · 直连 ${fmtBytes(allTot - proxyTot)} · ${rows.length} 个程序</p>`;
+  if (rankMode === "node") {
+    const packN = pack.nodes || { rows: [], upload: 0, download: 0 };
+    let nrows = (packN.rows || []).slice();
+    if (q) nrows = nrows.filter(r => hit(r.node));
+    const ntot = Number(packN.download || 0) + Number(packN.upload || 0);
+    const nsum = `<p class="sum">${label} 走代理节点合计 ${fmtBytes(ntot)}（↓ ${fmtBytes(packN.download || 0)} · ↑ ${fmtBytes(packN.upload || 0)}） · ${nrows.length} 个节点</p>`;
+    if (!nrows.length) return `${nsum}<div class="empty">这段时间还没有节点流量</div>`;
+    const max = Math.max(1, ...nrows.map(r => r.download + r.upload));
+    return `${nsum}
+      <table>
+        <thead><tr><th class="rk">#</th><th>节点</th><th class="num">下载</th><th class="num">上传</th><th class="num">合计</th><th class="num hide-sm">占比</th></tr></thead>
+        <tbody>${nrows.map((r, i) => {
+          const tot = r.download + r.upload;
+          const pct = Math.max(2, Math.round(100 * tot / max));
+          return `<tr>
+            <td class="rk">${i + 1}</td>
+            <td>${escapeHtml(r.node)}<span class="bar"><i style="width:${pct}%"></i></span></td>
+            <td class="num proxy">${fmtBytes(r.download)}</td>
+            <td class="num up">${fmtBytes(r.upload)}</td>
+            <td class="num">${fmtBytes(tot)}</td>
+            <td class="num hide-sm">${r.share || 0}%</td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table>`;
+  }
+  if (rankMode === "site") {
+    const packS = pack.sites || { rows: [], upload: 0, download: 0 };
+    let srows = (packS.rows || []).slice();
+    if (q) srows = srows.filter(r => hit(r.site));
+    const stot = Number(packS.download || 0) + Number(packS.upload || 0);
+    const ssum = `<p class="sum">${label} 网站合计 ${fmtBytes(stot)} · ${srows.length} 个域名</p>`;
+    if (!srows.length) return `${ssum}<div class="empty">这段时间还没有网站流量</div>`;
+    const max = Math.max(1, ...srows.map(r => r.download + r.upload));
+    return `${ssum}
+      <table>
+        <thead><tr><th class="rk">#</th><th>网站</th><th class="num">代理↓</th><th class="num">直连↓</th><th class="num">上传</th><th class="num">合计</th><th class="num hide-sm">占比</th></tr></thead>
+        <tbody>${srows.map((r, i) => {
+          const tot = r.download + r.upload;
+          const pct = Math.max(2, Math.round(100 * tot / max));
+          return `<tr>
+            <td class="rk">${i + 1}</td>
+            <td>${escapeHtml(r.site)}<span class="bar"><i style="width:${pct}%"></i></span></td>
+            <td class="num proxy">${fmtBytes(r.proxy_down)}</td>
+            <td class="num down">${fmtBytes(r.direct_down)}</td>
+            <td class="num up">${fmtBytes(r.upload)}</td>
+            <td class="num">${fmtBytes(tot)}</td>
+            <td class="num hide-sm">${r.share || 0}%</td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table>`;
+  }
+  if (!rows.length) return `${sum}<div class="empty">${proxyMode ? "这段时间还没有走代理的流量" : "没有数据"}</div>`;
+  if (proxyMode) {
+    const max = Math.max(1, ...rows.map(r => Number(r.proxy_total || (r.proxy_up + r.proxy_down))));
+    return `${sum}
+      <table>
+        <thead><tr><th class="rk">#</th><th>程序</th><th class="num">代理↓</th><th class="num">代理↑</th><th class="num">合计</th><th class="num hide-sm">占比</th></tr></thead>
+        <tbody>${rows.map((r, i) => {
+          const tot = Number(r.proxy_total || (r.proxy_up + r.proxy_down));
+          const pct = Math.max(2, Math.round(100 * tot / max));
+          const { key, sites, open, kids } = rankSiteRows(r, true);
+          const fold = sites.length ? "foldable" : "";
+          const main = `<tr class="${fold}" data-key="${escapeHtml(key)}">
+            <td class="rk">${i + 1}</td>
+            <td>${escapeHtml(labelOf(r.process))}${sites.length ? (open ? " −" : " +") : ""}${whyOf(r)}<span class="bar"><i style="width:${pct}%"></i></span></td>
+            <td class="num proxy">${fmtBytes(r.proxy_down)}</td>
+            <td class="num up">${fmtBytes(r.proxy_up)}</td>
+            <td class="num">${fmtBytes(tot)}</td>
+            <td class="num hide-sm">${r.proxy_share || 0}%</td>
+          </tr>`;
+          return main + kids.join("");
+        }).join("")}</tbody>
+      </table>`;
+  }
+  const max = Math.max(1, ...rows.map(r => r.download + r.upload));
+  return `${sum}
+    <table>
+      <thead><tr><th class="rk">#</th><th>程序</th><th class="num">代理↓</th><th class="num">直连↓</th><th class="num">上传</th><th class="num">合计</th><th class="num hide-sm">占比</th></tr></thead>
+      <tbody>${rows.map(r => {
+        const tot = r.download + r.upload;
+        const pct = Math.max(2, Math.round(100 * tot / max));
+        const { key, sites, open, kids } = rankSiteRows(r, false);
+        const fold = sites.length ? "foldable" : "";
+        const main = `<tr class="${fold}" data-key="${escapeHtml(key)}">
+          <td class="rk">${r.rank}</td>
+          <td>${escapeHtml(labelOf(r.process))}${sites.length ? (open ? " −" : " +") : ""}${whyOf(r)}<span class="bar"><i style="width:${pct}%"></i></span></td>
+          <td class="num proxy">${fmtBytes(r.proxy_down)}</td>
+          <td class="num down">${fmtBytes(r.direct_down)}</td>
+          <td class="num up">${fmtBytes(r.upload)}</td>
+          <td class="num">${fmtBytes(tot)}</td>
+          <td class="num hide-sm">${r.share}%</td>
+        </tr>`;
+        return main + kids.join("");
+      }).join("")}</tbody>
+    </table>`;
+}
+function laneTable(kind, lane) {
+  const rows = sortRows((lane.rows || []).filter(p => {
+    if (!query()) return true;
+    return hit(p.process, labelOf(p.process), p.node) || (p.sites || []).some(s => hit(s.site));
+  }));
+  if (!rows.length) return `<tr><td class="empty" colspan="3">没有程序</td></tr>`;
+  return rows.flatMap(p => {
+    const key = kind + ":" + p.process;
+    const sites = p.sites || [];
+    const open = opened.has(key);
+    const extra = [sites.length ? sites.length + " 站" : "", p.live ? p.live + " 在连" : ""].filter(Boolean).join(" · ");
+    const main = `<tr class="${sites.length ? "foldable" : ""}" data-key="${escapeHtml(key)}">
+      <td>${escapeHtml(labelOf(p.process))}${sites.length ? (open ? " −" : " +") : ""}${whyOf(p)}${extra ? `<div class="meta">${escapeHtml(extra)}</div>` : ""}</td>
+      <td class="num up">${fmtBytes(p.upload)}</td>
+      <td class="num down">${fmtBytes(p.download)}</td>
+    </tr>`;
+    const kids = (!sites.length || !open) ? [] : sites.filter(s => !query() || hit(s.site) || hit(p.process, labelOf(p.process))).map(s => `<tr class="site">
+      <td>${escapeHtml(s.site)}</td>
+      <td class="num">${fmtBytes(s.upload)}</td>
+      <td class="num">${fmtBytes(s.download)}</td>
+    </tr>`);
+    return [main, ...kids];
+  }).join("");
+}
+function renderLanes() {
+  const lanes = last.lanes || {};
+  const px = lanes.proxy || { rows: [] };
+  const dx = lanes.direct || { rows: [] };
+  return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div>
+      <p class="sum">走代理 ↓ ${fmtBytes(px.download)} · ↑ ${fmtBytes(px.upload)}</p>
+      <table><thead><tr><th>程序</th><th class="num">上传</th><th class="num">下载</th></tr></thead>
+      <tbody>${laneTable("proxy", px)}</tbody></table>
+    </div>
+    <div>
+      <p class="sum">走直连 ↓ ${fmtBytes(dx.download)} · ↑ ${fmtBytes(dx.upload)}</p>
+      <table><thead><tr><th>程序</th><th class="num">上传</th><th class="num">下载</th></tr></thead>
+      <tbody>${laneTable("direct", dx)}</tbody></table>
+    </div>
+  </div>`;
+}
+function renderConns(rows) {
+  const q = query();
+  const live = filter === "conns";
+  if (live && leakOnly) rows = rows.filter(f => f.path === "leak");
+  if (q) rows = rows.filter(f => hit(f.process, labelOf(f.process), f.remote, f.node, f.note));
+  if (!rows.length) return `<div class="empty">${live && leakOnly ? "现在没有漏网连接" : "没有连接"}</div>`;
+  return `<table>
+    <thead><tr><th>出站</th><th>进程</th><th>远端</th><th class="num">上传</th><th class="num">下载</th><th class="hide-sm">规则</th>${live ? "<th class='act'></th>" : ""}</tr></thead>
+    <tbody>${rows.map(f => {
+      const ids = (f.ids || (f.id ? [f.id] : [])).filter(Boolean);
+      let tag = `<span class="down">直连</span>`;
+      if (f.path === "leak") tag = `<span class="leak-tag">漏网</span>`;
+      else if (f.outbound === "proxy") tag = `<span class="proxy">代理</span> ${escapeHtml(f.node || "")}`;
+      const kill = live && ids.length ? `<td class="act"><button type="button" data-close="${escapeHtml(ids.join(","))}">断</button></td>` : (live ? "<td></td>" : "");
+      return `<tr>
+      <td>${tag}</td>
+      <td>${escapeHtml(labelOf(f.process))}</td>
+      <td>${escapeHtml(f.remote)}</td>
+      <td class="num">${fmtBytes(f.upload)}</td>
+      <td class="num">${fmtBytes(f.download)}</td>
+      <td class="hide-sm">${escapeHtml(f.note)}</td>
+      ${kill}
+    </tr>`;
+    }).join("")}</tbody>
+  </table>`;
+}
+async function loadSettings() {
+  const r = await fetch("/api/settings");
+  settingsCache = await r.json();
+}
+async function saveSetting(key, value) {
+  settingsNote = "";
+  const r = await fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ [key]: value })
+  });
+  settingsCache = await r.json();
+  settingsNote = settingsCache.error ? "" : "已保存";
+  render();
+}
+async function openDataDir() {
+  await fetch("/api/open-data", { method: "POST" });
+}
+function renderSettings() {
+  const s = settingsCache || {};
+  const note = s.error
+    ? `<span class="err">${escapeHtml(s.error)}</span>`
+    : (settingsNote ? `<span class="ok">${settingsNote}</span>` : "");
+  return `<div class="settings" id="set-form">
+    <h2>启动</h2>
+    <label class="row">
+      <input type="checkbox" ${s.autostart ? "checked" : ""} onchange="saveSetting('autostart', this.checked)">
+      <div>开机自启动${note}<div class="hint">写入当前用户启动项。开机后最小化、不弹浏览器。请用要长期用的那个程序勾选（打包版请打开 FenGuang.exe 后再勾）。</div></div>
+    </label>
+    <label class="row">
+      <input type="checkbox" ${s.start_minimized ? "checked" : ""} onchange="saveSetting('start_minimized', this.checked)">
+      <div>启动后藏到托盘<div class="hint">开机自启也会这样。点托盘图标再打开窗口。</div></div>
+    </label>
+    <label class="row">
+      <input type="checkbox" ${s.close_to_tray !== false ? "checked" : ""} onchange="saveSetting('close_to_tray', this.checked)">
+      <div>关闭窗口藏到托盘<div class="hint">采集继续。要从托盘彻底退出，选「退出」。</div></div>
+    </label>
+    <label class="row">
+      <input type="checkbox" ${s.open_browser ? "checked" : ""} onchange="saveSetting('open_browser', this.checked)">
+      <div>手动启动时打开页面<div class="hint">开机自启始终不弹浏览器。</div></div>
+    </label>
+    <h2>采集</h2>
+    <div class="field">
+      <label>Clash 接口</label>
+      <input type="text" value="${escapeHtml(s.clash_api || "")}" onchange="saveSetting('clash_api', this.value)">
+      <div class="hint">默认 http://127.0.0.1:9090 。FlClash 里打开外部控制器后才能按程序/网站分流。</div>
+    </div>
+    <div class="field">
+      <label>Clash 密钥</label>
+      <input type="password" value="${escapeHtml(s.clash_secret || "")}" autocomplete="off" onchange="saveSetting('clash_secret', this.value)">
+      <div class="hint">对应 FlClash / Clash 的 secret。没有设密码就留空。</div>
+    </div>
+    <div class="field">
+      <label>排行数据保留天数</label>
+      <input type="number" min="7" max="365" value="${Number(s.retention_days || 40)}" onchange="saveSetting('retention_days', Number(this.value))">
+      <div class="hint">只影响 15 分钟时段排行，连接记录文件不会按这个天数自动删。</div>
+    </div>
+    <h2>日流量提醒</h2>
+    <div class="field">
+      <label>今天合计超过（MB，0 表示关闭）</label>
+      <input type="number" min="0" step="1" value="${Number(s.quota_total_mb || 0)}" onchange="saveSetting('quota_total_mb', Number(this.value))">
+    </div>
+    <div class="field">
+      <label>单个程序今天超过（MB，0 表示关闭）</label>
+      <input type="number" min="0" step="1" value="${Number(s.quota_program_mb || 0)}" onchange="saveSetting('quota_program_mb', Number(this.value))">
+      <div class="hint">按「今天」排行的上传+下载计算，页面顶部会黄条提示。</div>
+    </div>
+    <h2>数据</h2>
+    <p class="path">${escapeHtml(s.data_dir || "")}</p>
+    <button type="button" onclick="openDataDir()">打开数据文件夹</button>
+  </div>`;
+}
+function paintChrome() {
+  if (!last) return;
+  const s = last.status || {};
+  document.getElementById("rates").textContent = `↓ ${fmtSpeed(s.down_speed)}  ↑ ${fmtSpeed(s.up_speed)}`;
+  const bits = [
+    s.tun_up ? "TUN 开" : "TUN 未接管",
+    s.clash_api ? "已接 Clash" : "未接 Clash 接口",
+    (s.leak_n ? "漏网 " + s.leak_n : ""),
+    (s.nodes || []).join(" · ") || "无节点",
+    new Date((last.ts || 0) * 1000).toLocaleTimeString()
+  ].filter(Boolean);
+  document.getElementById("status").textContent = bits.join("  ·  ");
+  const boxQ = document.getElementById("quota");
+  const alerts = last.alerts || [];
+  if (!alerts.length) {
+    boxQ.hidden = true;
+    boxQ.innerHTML = "";
+  } else {
+    boxQ.hidden = false;
+    boxQ.innerHTML = alerts.map(a => {
+      if (a.kind === "leak") {
+        const names = (a.names || []).map(n => labelOf(n)).join("、");
+        return `<p class="leak-line" data-open-leaks="1"><b>漏网 ${a.count}</b>${names ? " · " + escapeHtml(names) : ""}，点这里看连接</p>`;
+      }
+      if (a.kind === "new") {
+        return `<p class="new-line"><b>${escapeHtml(labelOf(a.process))}</b> 开始走网了 <button type="button" data-ack-new="${escapeHtml(a.process)}">知道了</button></p>`;
+      }
+      if (a.kind === "program") {
+        return `<p><b>${escapeHtml(labelOf(a.process))}</b> 今天已用 ${fmtBytes(a.used)}，超过 ${fmtBytes(a.limit)}</p>`;
+      }
+      return `<p><b>今天合计</b> 已用 ${fmtBytes(a.used)}，超过 ${fmtBytes(a.limit)}</p>`;
+    }).join("");
+  }
+}
+function render() {
+  const isSet = filter === "settings";
+  document.querySelector(".tools").style.display = isSet ? "none" : "flex";
+  document.querySelector(".chart-box").style.display = isSet ? "none" : "block";
+  document.querySelector(".search").style.display = isSet ? "none" : "block";
+  pbox.style.display = (!isSet && filter === "rank") ? "flex" : "none";
+  mbox.style.display = (!isSet && filter === "rank") ? "flex" : "none";
+  if (last) paintChrome();
+  const main = document.getElementById("main");
+  if (isSet) {
+    main.innerHTML = renderSettings();
+    return;
+  }
+  if (!last) return;
+  if (filter === "rank") main.innerHTML = renderRank();
+  else if (filter === "lanes") main.innerHTML = renderLanes();
+  else main.innerHTML = renderConns(filter === "closed" ? (last.closed || []) : (last.flows || []));
+}
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+async function tick() {
+  try {
+    const r = await fetch("/api/snapshot");
+    last = await r.json();
+    if (last.error) throw new Error(last.error);
+    if (filter === "settings") paintChrome();
+    else {
+      render();
+      drawChart();
+    }
+  } catch (e) {
+    document.getElementById("status").textContent = "采集失败 " + e.message;
+  }
+}
+function setFilter(id) {
+  filter = id;
+  [...box.children].forEach(x => x.classList.toggle("on", x.textContent === (FILTERS.find(f => f[0] === id) || [])[1]));
+  render();
+}
+document.getElementById("quota").addEventListener("click", async (e) => {
+  if (e.target.closest("[data-open-leaks]")) {
+    leakOnly = true;
+    setFilter("conns");
+    return;
+  }
+  const ack = e.target.closest("[data-ack-new]");
+  if (ack) {
+    await fetch("/api/ack-new", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ process: ack.dataset.ackNew || "" })
+    });
+    tick();
+  }
+});
+document.getElementById("main").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-close]");
+  if (btn) {
+    const ids = (btn.dataset.close || "").split(",").filter(Boolean);
+    fetch("/api/close", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids })
+    }).then(() => tick());
+    return;
+  }
+  if (filter !== "lanes" && filter !== "rank") return;
+  const tr = e.target.closest("tr.foldable");
+  if (!tr) return;
+  const key = tr.dataset.key;
+  if (!key) return;
+  if (opened.has(key)) opened.delete(key); else opened.add(key);
+  render();
+});
+(function bindChart() {
+  const canvas = document.getElementById("chart");
+  canvas.addEventListener("mousemove", (e) => {
+    const hist = (last && last.history) || [];
+    if (hist.length < 2) return;
+    const rect = canvas.getBoundingClientRect();
+    const t = (e.clientX - rect.left) / Math.max(rect.width, 1);
+    hoverIdx = Math.round(Math.max(0, Math.min(1, t)) * (hist.length - 1));
+    drawChart();
+  });
+  canvas.addEventListener("mouseleave", () => { hoverIdx = -1; drawChart(); });
+  window.addEventListener("resize", () => drawChart());
+})();
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>
