@@ -101,19 +101,79 @@
   .leak-tag { color: #c42b1c; font-weight: 600; }
   .act { text-align: right; white-space: nowrap; width: 3.5em; }
   .act button { padding: 1px 8px; cursor: pointer; background: var(--panel); border: 1px solid var(--line); }
+  .live {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    padding: 10px 12px 8px;
+    margin-bottom: 10px;
+  }
+  .pipe-track {
+    display: flex;
+    height: 8px;
+    background: var(--bar);
+    overflow: hidden;
+  }
+  .pipe-track i { display: block; height: 100%; }
+  .pipe-track .proxy { background: var(--proxy); }
+  .pipe-track .direct { background: var(--direct); }
+  .pipe-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .pipe-meta .split { color: var(--mute); }
+  .eaters {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    min-height: 22px;
+  }
+  .eaters .who, .app {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .eaters .who img, .app img {
+    width: 16px; height: 16px; flex: none;
+  }
+  .eaters .who .spd { color: var(--mute); font-variant-numeric: tabular-nums; }
+  .row-act { margin-left: 8px; opacity: 0.45; }
+  tr:hover .row-act { opacity: 1; }
+  .row-act button {
+    padding: 0 6px; font-size: 11px; cursor: pointer;
+    background: var(--panel); border: 1px solid var(--line);
+  }
+  .pinned-mark { color: var(--proxy); margin-right: 4px; }
+  .settings .ign-list { list-style: none; padding: 0; margin: 8px 0 0; }
+  .settings .ign-list li {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line);
+  }
+  .settings .ign-list button {
+    padding: 1px 8px; cursor: pointer; background: var(--panel); border: 1px solid var(--line);
+  }
   @media (max-width: 800px) { .hide-sm { display: none; } }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>Flash Monitor</h1>
     <nav class="nav" id="filters"></nav>
     <label class="search"><input id="q" type="search" placeholder="搜索" autocomplete="off"></label>
-    <div class="rates" id="rates"></div>
     <button type="button" class="upd" id="btn-update">更新</button>
   </header>
   <p class="meta" id="status">采集中…</p>
+  <section class="live" id="live">
+    <div class="pipe-track" id="pipe"><i class="proxy" id="pipe-proxy" style="width:0"></i><i class="direct" id="pipe-direct" style="width:0"></i></div>
+    <div class="pipe-meta">
+      <span class="rates" id="rates"></span>
+      <span class="split" id="split-lab"></span>
+    </div>
+    <div class="eaters" id="eaters"></div>
+  </section>
   <div id="airport" class="airport" hidden></div>
   <div id="quota" class="quota" hidden></div>
   <div class="tools">
@@ -126,6 +186,9 @@
     </select>
     <button type="button" id="btn-export">导出 CSV</button>
     <button type="button" id="btn-reset">清零累计</button>
+    <label class="row-act" style="opacity:1;margin-left:0">
+      <input type="checkbox" id="show-ignored"> 显示已忽略
+    </label>
   </div>
   <section class="chart-box">
     <div class="chart-head">
@@ -225,7 +288,49 @@ function hit(...parts) {
   if (!q) return true;
   return parts.some(p => String(p || "").toLowerCase().includes(q));
 }
-function labelOf(p) { return NAMES[p] || p; }
+function labelOf(p, title) { return title || NAMES[p] || p; }
+function prefs() { return (last && last.prefs) || { ignored: [], pinned: [] }; }
+function isIgnored(p) {
+  const n = String(p || "").toLowerCase();
+  return (prefs().ignored || []).some(x => String(x).toLowerCase() === n);
+}
+function isPinned(p) {
+  const n = String(p || "").toLowerCase();
+  return (prefs().pinned || []).some(x => String(x).toLowerCase() === n);
+}
+function iconImg(p) {
+  return `<img alt="" src="/api/icon?p=${encodeURIComponent(p)}" onerror="this.remove()">`;
+}
+function procCell(r, extra) {
+  const name = r.process;
+  const pin = isPinned(name);
+  const ign = isIgnored(name);
+  const extraHtml = extra || "";
+  return `<span class="app">${pin ? `<span class="pinned-mark">钉</span>` : ""}${iconImg(name)}<span>${escapeHtml(labelOf(name, r.title))}</span></span>${extraHtml}<span class="row-act"><button type="button" data-pin="${escapeHtml(name)}" data-on="${pin ? "0" : "1"}">${pin ? "取消钉" : "钉住"}</button> <button type="button" data-ignore="${escapeHtml(name)}" data-on="${ign ? "0" : "1"}">${ign ? "显示" : "忽略"}</button></span>`;
+}
+function arrangeRows(rows) {
+  const show = document.getElementById("show-ignored") && document.getElementById("show-ignored").checked;
+  let out = rows.filter(r => show || !isIgnored(r.process));
+  const pin = (prefs().pinned || []).map(x => String(x).toLowerCase());
+  out.sort((a, b) => {
+    const av = pin.indexOf(String(a.process).toLowerCase());
+    const bv = pin.indexOf(String(b.process).toLowerCase());
+    const ap = av === -1 ? 999 : av;
+    const bp = bv === -1 ? 999 : bv;
+    if (ap !== bp) return ap - bp;
+    return 0;
+  });
+  return out;
+}
+async function savePref(process, patch) {
+  await fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ process, ...patch })
+  });
+  try { settingsCache = await (await fetch("/api/settings")).json(); } catch {}
+  tick();
+}
 function fmtBytes(n) {
   n = Number(n || 0);
   if (!n) return "0";
@@ -344,7 +449,7 @@ function rankSiteRows(r, proxyMode) {
 function sortRows(rows) {
   const mode = document.getElementById("sort").value;
   const copy = rows.slice();
-  if (mode === "name") copy.sort((a, b) => labelOf(a.process).localeCompare(labelOf(b.process), "zh"));
+  if (mode === "name") copy.sort((a, b) => labelOf(a.process, a.title).localeCompare(labelOf(b.process, b.title), "zh"));
   else if (mode === "speed") copy.sort((a, b) => (b.down_speed + b.up_speed) - (a.down_speed + a.up_speed));
   else copy.sort((a, b) => (b.download + b.upload) - (a.download + a.upload));
   return copy;
@@ -358,10 +463,11 @@ function renderRank() {
   const proxyMode = rankMode === "proxy";
   let rows = (pack.rows || []).slice();
   if (proxyMode) rows = rows.filter(r => Number(r.proxy_total || (r.proxy_up + r.proxy_down)) > 0);
-  if (q) rows = rows.filter(r => hit(r.process, labelOf(r.process)));
+  if (q) rows = rows.filter(r => hit(r.process, labelOf(r.process, r.title), r.title));
   if (proxyMode) {
     rows.sort((a, b) => Number(b.proxy_total || (b.proxy_up + b.proxy_down)) - Number(a.proxy_total || (a.proxy_up + a.proxy_down)));
   }
+  rows = arrangeRows(rows);
   const sum = `<p class="sum">${label} 代理 ${fmtBytes(proxyTot)}（↓ ${fmtBytes(pack.proxy_download || 0)} · ↑ ${fmtBytes(pack.proxy_upload || 0)}） · 直连 ${fmtBytes(allTot - proxyTot)} · ${rows.length} 个程序</p>`;
   if (rankMode === "node") {
     const packN = pack.nodes || { rows: [], upload: 0, download: 0 };
@@ -427,7 +533,7 @@ function renderRank() {
           const fold = sites.length ? "foldable" : "";
           const main = `<tr class="${fold}" data-key="${escapeHtml(key)}">
             <td class="rk">${i + 1}</td>
-            <td>${escapeHtml(labelOf(r.process))}${sites.length ? (open ? " −" : " +") : ""}${whyOf(r)}<span class="bar"><i style="width:${pct}%"></i></span></td>
+            <td>${procCell(r, (sites.length ? (open ? " −" : " +") : "") + whyOf(r))}<span class="bar"><i style="width:${pct}%"></i></span></td>
             <td class="num proxy">${fmtBytes(r.proxy_down)}</td>
             <td class="num up">${fmtBytes(r.proxy_up)}</td>
             <td class="num">${fmtBytes(tot)}</td>
@@ -448,7 +554,7 @@ function renderRank() {
         const fold = sites.length ? "foldable" : "";
         const main = `<tr class="${fold}" data-key="${escapeHtml(key)}">
           <td class="rk">${r.rank}</td>
-          <td>${escapeHtml(labelOf(r.process))}${sites.length ? (open ? " −" : " +") : ""}${whyOf(r)}<span class="bar"><i style="width:${pct}%"></i></span></td>
+          <td>${procCell(r, (sites.length ? (open ? " −" : " +") : "") + whyOf(r))}<span class="bar"><i style="width:${pct}%"></i></span></td>
           <td class="num proxy">${fmtBytes(r.proxy_down)}</td>
           <td class="num down">${fmtBytes(r.direct_down)}</td>
           <td class="num up">${fmtBytes(r.upload)}</td>
@@ -460,10 +566,11 @@ function renderRank() {
     </table>`;
 }
 function laneTable(kind, lane) {
-  const rows = sortRows((lane.rows || []).filter(p => {
+  const rows = arrangeRows(sortRows((lane.rows || []).filter(p => {
+    if (isIgnored(p.process) && !(document.getElementById("show-ignored") && document.getElementById("show-ignored").checked)) return false;
     if (!query()) return true;
-    return hit(p.process, labelOf(p.process), p.node) || (p.sites || []).some(s => hit(s.site));
-  }));
+    return hit(p.process, labelOf(p.process, p.title), p.node) || (p.sites || []).some(s => hit(s.site));
+  })));
   if (!rows.length) return `<tr><td class="empty" colspan="3">没有程序</td></tr>`;
   return rows.flatMap(p => {
     const key = kind + ":" + p.process;
@@ -471,7 +578,7 @@ function laneTable(kind, lane) {
     const open = opened.has(key);
     const extra = [sites.length ? sites.length + " 站" : "", p.live ? p.live + " 在连" : ""].filter(Boolean).join(" · ");
     const main = `<tr class="${sites.length ? "foldable" : ""}" data-key="${escapeHtml(key)}">
-      <td>${escapeHtml(labelOf(p.process))}${sites.length ? (open ? " −" : " +") : ""}${whyOf(p)}${extra ? `<div class="meta">${escapeHtml(extra)}</div>` : ""}</td>
+      <td>${procCell(p, (sites.length ? (open ? " −" : " +") : "") + whyOf(p))}${extra ? `<div class="meta">${escapeHtml(extra)}</div>` : ""}</td>
       <td class="num up">${fmtBytes(p.upload)}</td>
       <td class="num down">${fmtBytes(p.download)}</td>
     </tr>`;
@@ -504,7 +611,7 @@ function renderConns(rows) {
   const q = query();
   const live = filter === "conns";
   if (live && leakOnly) rows = rows.filter(f => f.path === "leak");
-  if (q) rows = rows.filter(f => hit(f.process, labelOf(f.process), f.remote, f.node, f.note));
+  if (q) rows = rows.filter(f => hit(f.process, labelOf(f.process, f.title), f.remote, f.node, f.note));
   if (!rows.length) return `<div class="empty">${live && leakOnly ? "现在没有漏网连接" : "没有连接"}</div>`;
   return `<table>
     <thead><tr><th>出站</th><th>进程</th><th>远端</th><th class="num">上传</th><th class="num">下载</th><th class="hide-sm">规则</th>${live ? "<th class='act'></th>" : ""}</tr></thead>
@@ -517,7 +624,7 @@ function renderConns(rows) {
       const kill = live && ids.length ? `<td class="act"><button type="button" data-close="${escapeHtml(ids.join(","))}">断</button></td>` : (live ? "<td></td>" : "");
       return `<tr>
       <td>${tag}</td>
-      <td>${escapeHtml(labelOf(f.process))}</td>
+      <td>${escapeHtml(labelOf(f.process, f.title))}</td>
       <td>${escapeHtml(f.remote)}</td>
       <td class="num">${fmtBytes(f.upload)}</td>
       <td class="num">${fmtBytes(f.download)}</td>
@@ -620,10 +727,9 @@ function renderSettings() {
       <input type="checkbox" ${s.close_to_tray !== false ? "checked" : ""} onchange="saveSetting('close_to_tray', this.checked)">
       <div>关闭窗口藏到托盘<div class="hint">采集继续。要从托盘彻底退出，选「退出」。</div></div>
     </label>
-    <label class="row">
-      <input type="checkbox" ${s.open_browser ? "checked" : ""} onchange="saveSetting('open_browser', this.checked)">
-      <div>手动启动时另外打开浏览器<div class="hint">已经有自己的窗口，一般不用勾。开机自启始终不弹浏览器。</div></div>
-    </label>
+    <h2>忽略的程序</h2>
+    <p class="hint">忽略后不出现在排行、分流和托盘提示。系统噪音默认已忽略。</p>
+    ${(s.ignored || []).length ? `<ul class="ign-list">${(s.ignored || []).map(n => `<li><span class="app">${iconImg(n)}<span>${escapeHtml(labelOf(n))}</span></span><button type="button" data-ignore="${escapeHtml(n)}" data-on="0">取消忽略</button></li>`).join("")}</ul>` : `<p class="hint">还没有忽略名单。</p>`}
     <h2>采集</h2>
     <div class="field">
       <label>Clash 接口</label>
@@ -663,10 +769,34 @@ function renderSettings() {
     <button type="button" onclick="doUpdate()">立即更新</button>
   </div>`;
 }
+function paintLive() {
+  const box = document.getElementById("live");
+  if (filter === "settings") {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  const live = (last && last.live) || {};
+  const pd = Number(live.proxy_down || 0) + Number(live.proxy_up || 0);
+  const dd = Number(live.direct_down || 0) + Number(live.direct_up || 0);
+  const tot = pd + dd;
+  const pp = tot ? Math.round(100 * pd / tot) : 0;
+  document.getElementById("pipe-proxy").style.width = (tot ? pp : 0) + "%";
+  document.getElementById("pipe-direct").style.width = (tot ? (100 - pp) : 0) + "%";
+  document.getElementById("rates").textContent = `↓ ${fmtSpeed(live.down || 0)}  ↑ ${fmtSpeed(live.up || 0)}`;
+  document.getElementById("split-lab").textContent = tot ? `代理 ${pp}% · 直连 ${100 - pp}%` : "还没流量";
+  const eaters = live.eaters || [];
+  document.getElementById("eaters").innerHTML = eaters.length
+    ? eaters.map(e => {
+        const lane = Number(e.proxy_down || 0) >= Number(e.direct_down || 0) ? "proxy" : "direct";
+        return `<span class="who">${iconImg(e.process)}<span>${escapeHtml(labelOf(e.process, e.title))}</span><span class="spd ${lane}">${fmtSpeed(Number(e.down || 0) + Number(e.up || 0))}</span></span>`;
+      }).join("")
+    : `<span class="spd">没有明显在跑的程序</span>`;
+}
 function paintChrome() {
   if (!last) return;
   const s = last.status || {};
-  document.getElementById("rates").textContent = `↓ ${fmtSpeed(s.down_speed)}  ↑ ${fmtSpeed(s.up_speed)}`;
+  paintLive();
   const mode = s.mode === "both" || (s.tun_up && s.sysproxy)
     ? "TUN + 系统代理"
     : (s.tun_up || s.mode === "tun")
@@ -683,6 +813,11 @@ function paintChrome() {
     new Date((last.ts || 0) * 1000).toLocaleTimeString()
   ].filter(Boolean);
   document.getElementById("status").textContent = bits.join("  ·  ");
+  if (filter === "settings") {
+    document.getElementById("airport").hidden = true;
+    document.getElementById("quota").hidden = true;
+    return;
+  }
   const boxA = document.getElementById("airport");
   const sub = last.sub || {};
   const used = Number(sub.used || 0);
@@ -738,6 +873,10 @@ function render() {
   pbox.style.display = (!isSet && filter === "rank") ? "flex" : "none";
   mbox.style.display = (!isSet && filter === "rank") ? "flex" : "none";
   if (last) paintChrome();
+  if (isSet) {
+    document.getElementById("airport").hidden = true;
+    document.getElementById("quota").hidden = true;
+  }
   const main = document.getElementById("main");
   if (isSet) {
     main.innerHTML = renderSettings();
@@ -791,7 +930,20 @@ document.getElementById("quota").addEventListener("click", async (e) => {
     tick();
   }
 });
+document.getElementById("show-ignored").onchange = () => render();
 document.getElementById("main").addEventListener("click", (e) => {
+  const ign = e.target.closest("[data-ignore]");
+  if (ign) {
+    e.stopPropagation();
+    savePref(ign.dataset.ignore, { ignored: ign.dataset.on === "1" });
+    return;
+  }
+  const pin = e.target.closest("[data-pin]");
+  if (pin) {
+    e.stopPropagation();
+    savePref(pin.dataset.pin, { pinned: pin.dataset.on === "1" });
+    return;
+  }
   const btn = e.target.closest("[data-close]");
   if (btn) {
     const ids = (btn.dataset.close || "").split(",").filter(Boolean);

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import ctypes
 import io
 import ipaddress
 import json
@@ -18,16 +19,17 @@ import sys
 import threading
 import time
 import webbrowser
+from ctypes import wintypes
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, unquote
 from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
 APP_NAME = "Flash Monitor"
 APP_ID = "FlashMonitor"
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.6.0"
 GITHUB_REPO = "finnheihei/FlashMonitor"
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = 8787
@@ -156,6 +158,23 @@ def load_page() -> str:
     return (resource_dir() / "ui.html").read_text(encoding="utf-8")
 
 
+DEFAULT_IGNORE = [
+    "FlashMonitor",
+    "msedgewebview2",
+    "wetype_server",
+    "MpDefenderCoreService",
+    "SearchHost",
+    "TextInputHost",
+    "StartMenuExperienceHost",
+    "ShellExperienceHost",
+    "RuntimeBroker",
+    "conhost",
+    "ctfmon",
+    "sihost",
+    "taskhostw",
+    "dwm",
+]
+
 DEFAULT_SETTINGS = {
     "autostart": False,
     "open_browser": False,
@@ -167,7 +186,194 @@ DEFAULT_SETTINGS = {
     "quota_total_mb": 0,
     "quota_program_mb": 0,
     "sub_url": "",
+    "ignored": [],
+    "pinned": [],
 }
+
+
+def as_name_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        name = str(item or "").strip()
+        key = name.lower()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        out.append(name)
+        if len(out) >= 80:
+            break
+    return out
+
+
+def ignored_set() -> set[str]:
+    return {str(n).lower() for n in (SETTINGS.data.get("ignored") or []) if n}
+
+
+def pinned_list() -> list[str]:
+    return as_name_list(SETTINGS.data.get("pinned"))
+
+
+def icon_dir() -> Path:
+    path = DATA_DIR / "icons"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def icon_key(name: str) -> str:
+    raw = re.sub(r"[^A-Za-z0-9._-]+", "_", name.strip())[:80]
+    return raw or "app"
+
+
+def icon_path_for(name: str) -> Path:
+    return icon_dir() / f"{icon_key(name)}.png"
+
+
+def file_description(path: str) -> str:
+    if sys.platform != "win32" or not path or not Path(path).is_file():
+        return ""
+    try:
+        version = ctypes.WinDLL("version")
+        version.GetFileVersionInfoSizeW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)]
+        version.GetFileVersionInfoSizeW.restype = wintypes.DWORD
+        dummy = wintypes.DWORD()
+        size = version.GetFileVersionInfoSizeW(path, ctypes.byref(dummy))
+        if not size:
+            return ""
+        buf = ctypes.create_string_buffer(size)
+        version.GetFileVersionInfoW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p]
+        version.GetFileVersionInfoW.restype = wintypes.BOOL
+        if not version.GetFileVersionInfoW(path, 0, size, buf):
+            return ""
+        lp = ctypes.c_void_p()
+        llen = wintypes.UINT()
+        version.VerQueryValueW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.UINT)]
+        version.VerQueryValueW.restype = wintypes.BOOL
+        if not version.VerQueryValueW(buf, r"\VarFileInfo\Translation", ctypes.byref(lp), ctypes.byref(llen)) or not lp.value or llen.value < 4:
+            return ""
+        lang = ctypes.cast(lp, ctypes.POINTER(ctypes.c_ushort))
+        code = f"{lang[0]:04X}{lang[1]:04X}"
+        query = rf"\StringFileInfo\{code}\FileDescription"
+        textp = ctypes.c_void_p()
+        tlen = wintypes.UINT()
+        if not version.VerQueryValueW(buf, query, ctypes.byref(textp), ctypes.byref(tlen)) or not textp.value:
+            return ""
+        return ctypes.wstring_at(textp.value).strip()[:80]
+    except Exception:
+        return ""
+
+
+def extract_icon_png(src: str, dest: Path) -> bool:
+    if sys.platform != "win32" or not src or not Path(src).is_file():
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        gdiplus = ctypes.WinDLL("gdiplus")
+        large = wintypes.HANDLE()
+        small = wintypes.HANDLE()
+        shell32.ExtractIconExW.argtypes = [
+            wintypes.LPCWSTR,
+            ctypes.c_int,
+            ctypes.POINTER(wintypes.HANDLE),
+            ctypes.POINTER(wintypes.HANDLE),
+            wintypes.UINT,
+        ]
+        shell32.ExtractIconExW.restype = wintypes.UINT
+        n = shell32.ExtractIconExW(src, 0, ctypes.byref(large), ctypes.byref(small), 1)
+        hicon = large.value or small.value
+        if not n or not hicon:
+            return False
+
+        class GdiplusStartupInput(ctypes.Structure):
+            _fields_ = [
+                ("GdiplusVersion", ctypes.c_uint32),
+                ("DebugEventCallback", ctypes.c_void_p),
+                ("SuppressBackgroundThread", ctypes.c_int),
+                ("SuppressExternalCodecs", ctypes.c_int),
+            ]
+
+        class GUID(ctypes.Structure):
+            _fields_ = [
+                ("Data1", ctypes.c_uint32),
+                ("Data2", ctypes.c_uint16),
+                ("Data3", ctypes.c_uint16),
+                ("Data4", ctypes.c_ubyte * 8),
+            ]
+
+        ulong_ptr = ctypes.c_uint64 if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_uint32
+        token = ulong_ptr()
+        inp = GdiplusStartupInput(1, None, False, False)
+        gdiplus.GdiplusStartup.argtypes = [ctypes.POINTER(ulong_ptr), ctypes.POINTER(GdiplusStartupInput), ctypes.c_void_p]
+        if int(gdiplus.GdiplusStartup(ctypes.byref(token), ctypes.byref(inp), None)) != 0:
+            user32.DestroyIcon(hicon)
+            return False
+        bitmap = ctypes.c_void_p()
+        gdiplus.GdipCreateBitmapFromHICON.argtypes = [wintypes.HANDLE, ctypes.POINTER(ctypes.c_void_p)]
+        ok = int(gdiplus.GdipCreateBitmapFromHICON(hicon, ctypes.byref(bitmap))) == 0 and bitmap.value
+        saved = False
+        if ok:
+            clsid = GUID(0x557CF406, 0x1A04, 0x11D3, (ctypes.c_ubyte * 8)(0x9A, 0x73, 0x00, 0x00, 0xF8, 0x1E, 0xF3, 0x2E))
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            gdiplus.GdipSaveImageToFile.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR, ctypes.POINTER(GUID), ctypes.c_void_p]
+            saved = int(gdiplus.GdipSaveImageToFile(bitmap, str(dest), ctypes.byref(clsid), None)) == 0
+            gdiplus.GdipDisposeImage.argtypes = [ctypes.c_void_p]
+            gdiplus.GdipDisposeImage(bitmap)
+        gdiplus.GdiplusShutdown.argtypes = [ulong_ptr]
+        gdiplus.GdiplusShutdown(token.value)
+        user32.DestroyIcon(hicon)
+        if small.value and small.value != hicon:
+            user32.DestroyIcon(small.value)
+        return saved and dest.is_file() and dest.stat().st_size > 32
+    except Exception:
+        return False
+
+
+_ICON_LOCK = threading.Lock()
+_ICON_PENDING: set[str] = set()
+
+
+def schedule_icon(process: str, path: str) -> None:
+    name = process.strip()
+    if not name or not path:
+        return
+    dest = icon_path_for(name)
+    if dest.is_file() and dest.stat().st_size > 32:
+        return
+    with _ICON_LOCK:
+        if name in _ICON_PENDING:
+            return
+        _ICON_PENDING.add(name)
+
+    def work() -> None:
+        try:
+            extract_icon_png(path, dest)
+        finally:
+            with _ICON_LOCK:
+                _ICON_PENDING.discard(name)
+
+    threading.Thread(target=work, daemon=True, name="icon").start()
+
+
+def fmt_speed_text(n: float) -> str:
+    n = float(n or 0)
+    if n < 1:
+        return "0"
+    units = ["B", "KB", "MB", "GB"]
+    i = 0
+    while n >= 1024 and i < len(units) - 1:
+        n /= 1024
+        i += 1
+    body = str(int(round(n))) if i == 0 else f"{n:.1f}"
+    return f"{body} {units[i]}/s"
+
+
+_TRAY_STATE: dict[str, Any] = {"new": set(), "leak": False, "quota": set(), "tip": ""}
 
 
 class AppSettings:
@@ -178,13 +384,19 @@ class AppSettings:
         self._load()
 
     def _load(self) -> None:
+        raw: dict[str, Any] | None = None
         if self.path.is_file():
             try:
-                raw = json.loads(self.path.read_text(encoding="utf-8"))
-                if isinstance(raw, dict):
-                    self.data.update({k: raw[k] for k in DEFAULT_SETTINGS if k in raw})
+                loaded = json.loads(self.path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    raw = loaded
+                    self.data.update({k: loaded[k] for k in DEFAULT_SETTINGS if k in loaded})
+                    self.data["ignored"] = as_name_list(loaded.get("ignored", self.data.get("ignored")))
+                    self.data["pinned"] = as_name_list(loaded.get("pinned", self.data.get("pinned")))
             except (OSError, json.JSONDecodeError, TypeError, ValueError):
-                pass
+                raw = None
+        if raw is None or "ignored" not in raw:
+            self.data["ignored"] = list(DEFAULT_IGNORE)
         self.data["autostart"] = autostart_enabled()
 
     def save(self) -> None:
@@ -229,6 +441,30 @@ class AppSettings:
                 self.data["sub_url"] = url
             else:
                 self.data["sub_url"] = ""
+        if "ignored" in patch and isinstance(patch["ignored"], list) and "process" not in patch:
+            self.data["ignored"] = as_name_list(patch["ignored"])
+        if "pinned" in patch and isinstance(patch["pinned"], list) and "process" not in patch:
+            self.data["pinned"] = as_name_list(patch["pinned"])
+        proc = str(patch.get("process") or "").strip()
+        if proc:
+            if "ignored" in patch and isinstance(patch["ignored"], bool):
+                cur = as_name_list(self.data.get("ignored"))
+                if patch["ignored"]:
+                    if proc not in cur:
+                        cur.append(proc)
+                    self.data["pinned"] = [x for x in as_name_list(self.data.get("pinned")) if x.lower() != proc.lower()]
+                else:
+                    cur = [x for x in cur if x.lower() != proc.lower()]
+                self.data["ignored"] = cur
+            if "pinned" in patch and isinstance(patch["pinned"], bool):
+                cur = as_name_list(self.data.get("pinned"))
+                if patch["pinned"]:
+                    if proc not in cur:
+                        cur.append(proc)
+                    self.data["ignored"] = [x for x in as_name_list(self.data.get("ignored")) if x.lower() != proc.lower()]
+                else:
+                    cur = [x for x in cur if x.lower() != proc.lower()]
+                self.data["pinned"] = cur
         self.error = ""
         try:
             if "autostart" in patch:
@@ -1510,6 +1746,9 @@ class TrafficStore:
     def _note_process(self, name: str) -> None:
         if self._booting or name.lower() in CORE_NAMES:
             return
+        if name.lower() in ignored_set():
+            self.seen.add(name)
+            return
         if name in self.seen:
             return
         self.seen.add(name)
@@ -1529,6 +1768,10 @@ class TrafficStore:
                 row["last_cmd"] = shorten_cmd(cmd)
             if path:
                 row["last_path"] = path[-200:]
+                title = file_description(path)
+                if title:
+                    row["title"] = title
+                schedule_icon(name, path)
 
     def recent_new(self) -> list[dict[str, Any]]:
         with self.lock:
@@ -1810,16 +2053,24 @@ class TrafficStore:
             row["share"] = round(100.0 * (row["download"] + row["upload"]) / whole, 1)
             row["proxy_share"] = round(100.0 * int(row["proxy_total"]) / proxy_whole, 1)
         with self.lock:
+            speeds = dict(self.proc_speed)
             for row in rows:
                 rec = self.programs.get(row["process"]) or {}
                 row["cmd"] = str(rec.get("last_cmd") or "")
                 row["path"] = str(rec.get("last_path") or "")
+                row["title"] = str(rec.get("title") or "")
+                proxy_sp = speeds.get(f"{row['process']}|proxy") or {}
+                direct_sp = speeds.get(f"{row['process']}|direct") or {}
+                row["up_speed"] = float(proxy_sp.get("up") or 0) + float(direct_sp.get("up") or 0)
+                row["down_speed"] = float(proxy_sp.get("down") or 0) + float(direct_sp.get("down") or 0)
                 sites = rec.get("sites") or {}
                 site_rows = [{"site": host, **srec} for host, srec in sites.items()]
                 site_rows.sort(
                     key=lambda r: -(int(r.get("download") or 0) + int(r.get("upload") or 0))
                 )
                 row["sites"] = site_rows[:12]
+                if row["path"]:
+                    schedule_icon(str(row["process"]), str(row["path"]))
         return {
             "upload": tot_up,
             "download": tot_down,
@@ -2235,6 +2486,7 @@ class TrafficStore:
                         "node": p.get("last_node") or "",
                         "cmd": p.get("last_cmd") or "",
                         "path": p.get("last_path") or "",
+                        "title": p.get("title") or "",
                         "up_speed": float(sp.get("up") or 0),
                         "down_speed": float(sp.get("down") or 0),
                         "sites": sites,
@@ -2254,6 +2506,45 @@ class TrafficStore:
         return {
             "proxy": one("proxy_up", "proxy_down", "proxy"),
             "direct": one("direct_up", "direct_down", "direct"),
+        }
+
+    def live_view(self) -> dict[str, Any]:
+        rates = self.rates()
+        skip = ignored_set()
+        bag: dict[str, dict[str, float | str]] = {}
+        with self.lock:
+            spd = dict(self.speed)
+            titles = {n: str(rec.get("title") or "") for n, rec in self.programs.items()}
+            paths = {n: str(rec.get("last_path") or "") for n, rec in self.programs.items()}
+            for key, rec in self.proc_speed.items():
+                name, _, kind = key.partition("|")
+                if name.lower() in skip or name.lower() in CORE_NAMES:
+                    continue
+                row = bag.setdefault(
+                    name,
+                    {"process": name, "up": 0.0, "down": 0.0, "proxy_down": 0.0, "direct_down": 0.0, "title": titles.get(name, "")},
+                )
+                up = float(rec.get("up") or 0)
+                down = float(rec.get("down") or 0)
+                row["up"] = float(row["up"]) + up
+                row["down"] = float(row["down"]) + down
+                if kind == "proxy":
+                    row["proxy_down"] = float(row["proxy_down"]) + down
+                elif kind == "direct":
+                    row["direct_down"] = float(row["direct_down"]) + down
+                path = paths.get(name) or ""
+                if path:
+                    schedule_icon(name, path)
+        eaters = sorted(bag.values(), key=lambda r: -(float(r["up"]) + float(r["down"])))
+        eaters = [r for r in eaters if float(r["up"]) + float(r["down"]) >= 256][:3]
+        return {
+            "up": float(rates.get("up") or 0),
+            "down": float(rates.get("down") or 0),
+            "proxy_down": float(spd.get("proxy_down") or 0),
+            "direct_down": float(spd.get("direct_down") or 0),
+            "proxy_up": float(spd.get("proxy_up") or 0),
+            "direct_up": float(spd.get("direct_up") or 0),
+            "eaters": eaters,
         }
 
 
@@ -2613,6 +2904,11 @@ def snapshot(proxy_ports: set[int]) -> dict[str, Any]:
         "leaks": leaks,
         "alerts": build_alerts(rank["today"], leaks if tun_up else {"count": 0, "rows": []}, STORE.recent_new()),
         "sub": subinfo_public(),
+        "live": STORE.live_view(),
+        "prefs": {
+            "ignored": as_name_list(SETTINGS.data.get("ignored")),
+            "pinned": pinned_list(),
+        },
     }
 
 
@@ -2688,13 +2984,28 @@ def quota_alerts(today: dict[str, Any]) -> list[dict[str, Any]]:
 
 def build_alerts(today: dict[str, Any], leaks: dict[str, Any], new_apps: list[dict[str, Any]]) -> list[dict[str, Any]]:
     alerts: list[dict[str, Any]] = []
-    n = int(leaks.get("count") or 0)
-    if n:
-        names = [str(r.get("process") or "") for r in (leaks.get("rows") or [])[:4] if r.get("process")]
-        alerts.append({"kind": "leak", "count": n, "names": names})
+    skip = ignored_set()
+    leak_n = 0
+    names: list[str] = []
+    for row in leaks.get("rows") or []:
+        name = str(row.get("process") or "")
+        if name.lower() in skip:
+            continue
+        leak_n += int(row.get("n") or 0)
+        if name and len(names) < 4:
+            names.append(name)
+    if leak_n:
+        alerts.append({"kind": "leak", "count": leak_n, "names": names})
     for rec in new_apps[-6:]:
-        alerts.append({"kind": "new", "process": str(rec.get("process") or ""), "ts": int(rec.get("ts") or 0)})
-    alerts.extend(quota_alerts(today))
+        name = str(rec.get("process") or "")
+        if name.lower() in skip:
+            continue
+        alerts.append({"kind": "new", "process": name, "ts": int(rec.get("ts") or 0)})
+    for item in quota_alerts(today):
+        name = str(item.get("process") or "")
+        if name and name.lower() in skip:
+            continue
+        alerts.append(item)
     return alerts[:12]
 
 
@@ -2745,10 +3056,39 @@ class Handler(BaseHTTPRequestHandler):
                 status["up_speed"] = rates.get("up") or 0
                 status["down_speed"] = rates.get("down") or 0
                 data["status"] = status
+                data["live"] = STORE.live_view()
+                data["prefs"] = {
+                    "ignored": as_name_list(SETTINGS.data.get("ignored")),
+                    "pinned": pinned_list(),
+                }
             self._send(200, json.dumps(data, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
             return
         if path == "/api/settings":
             self._send(200, json.dumps(SETTINGS.public(), ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
+            return
+        if path == "/api/icon":
+            qs = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+            name = unquote((qs.get("p") or [""])[0]).strip()
+            dest = icon_path_for(name) if name else None
+            if dest is None or not dest.is_file():
+                src = ""
+                if name:
+                    with STORE.lock:
+                        rec = STORE.programs.get(name) or {}
+                        src = str(rec.get("last_path") or "")
+                if name and src:
+                    extract_icon_png(src, icon_path_for(name))
+                    dest = icon_path_for(name)
+            if dest is None or not dest.is_file():
+                self.send_error(404)
+                return
+            body = dest.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Cache-Control", "max-age=86400")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         if path == "/api/update":
             try:
@@ -3080,12 +3420,124 @@ class WinTray:
         nid.dwInfoFlags = 1
         ctypes.windll.shell32.Shell_NotifyIconW(1, ctypes.byref(nid))
 
+    def set_tip(self, text: str) -> None:
+        import ctypes
+
+        if self._nid is None or not self.hwnd:
+            return
+        nid = self._nid
+        nid.uFlags = 0x04
+        nid.szTip = (text or APP_NAME)[:127]
+        ctypes.windll.shell32.Shell_NotifyIconW(1, ctypes.byref(nid))
+
     def stop(self) -> None:
         import ctypes
 
         if self.hwnd:
             ctypes.windll.user32.PostMessageW(self.hwnd, 0x0010, 0, 0)  # WM_CLOSE
             ctypes.windll.user32.PostMessageW(self.hwnd, 0x0012, 0, 0)  # WM_QUIT
+
+
+def process_label(name: str, title: str = "") -> str:
+    if title:
+        return title
+    return {
+        "msedge": "Edge",
+        "chrome": "Chrome",
+        "firefox": "Firefox",
+        "msedgewebview2": "WebView",
+        "Weixin": "微信",
+        "WeChatAppEx": "微信",
+        "JianyingPro": "剪映",
+        "language_server": "Antigravity",
+        "Cursor": "Cursor",
+        "steam": "Steam",
+        "python": "Python",
+        "ssh": "SSH",
+        "node": "Node.js",
+        "MpDefenderCoreService": "Defender",
+    }.get(name, name)
+
+
+def tray_tip_text() -> str:
+    live = STORE.live_view()
+    down = fmt_speed_text(float(live.get("down") or 0))
+    up = fmt_speed_text(float(live.get("up") or 0))
+    eaters = live.get("eaters") or []
+    if eaters:
+        top = eaters[0]
+        name = process_label(str(top.get("process") or ""), str(top.get("title") or ""))
+        lane = "走代理" if float(top.get("proxy_down") or 0) >= float(top.get("direct_down") or 0) else "走直连"
+        return f"↓ {down}  ↑ {up} · {name} {lane}"
+    return f"↓ {down}  ↑ {up}"
+
+
+def tray_pulse_once(tray: WinTray) -> None:
+    tip = tray_tip_text()
+    if tip != _TRAY_STATE.get("tip"):
+        _TRAY_STATE["tip"] = tip
+        try:
+            tray.set_tip(tip)
+        except Exception:
+            pass
+    alerts = []
+    with Handler.lock:
+        snap = Handler.cache.get("snap")
+        if isinstance(snap, dict):
+            alerts = list(snap.get("alerts") or [])
+    seen_new: set[str] = _TRAY_STATE["new"]
+    for item in alerts:
+        kind = item.get("kind")
+        if kind == "new":
+            name = str(item.get("process") or "")
+            if name and name not in seen_new:
+                seen_new.add(name)
+                try:
+                    tray.balloon("新程序走网", f"{process_label(name)} 开始走网了")
+                except Exception:
+                    pass
+                return
+        if kind == "leak" and not _TRAY_STATE["leak"]:
+            _TRAY_STATE["leak"] = True
+            try:
+                tray.balloon("漏网", f"{item.get('count') or 0} 条连接没进 TUN")
+            except Exception:
+                pass
+            return
+        if kind == "total":
+            key = "total"
+            quota: set[str] = _TRAY_STATE["quota"]
+            if key not in quota:
+                quota.add(key)
+                try:
+                    tray.balloon("日流量", "今天合计已经超过提醒值")
+                except Exception:
+                    pass
+                return
+        if kind == "program":
+            key = str(item.get("process") or "")
+            quota = _TRAY_STATE["quota"]
+            if key and key not in quota:
+                quota.add(key)
+                try:
+                    tray.balloon("日流量", f"{process_label(key)} 今天已经超过提醒值")
+                except Exception:
+                    pass
+                return
+    if not any(a.get("kind") == "leak" for a in alerts):
+        _TRAY_STATE["leak"] = False
+
+
+def start_tray_pulse(tray: WinTray, stop: threading.Event) -> None:
+    def loop() -> None:
+        while not stop.is_set():
+            try:
+                tray_pulse_once(tray)
+            except Exception:
+                pass
+            stop.wait(2.0)
+
+    threading.Thread(target=loop, daemon=True, name="tray-pulse").start()
 
 
 def find_edge() -> Path | None:
@@ -3359,6 +3811,7 @@ def run_gui(url: str, stop: threading.Event, httpd: ThreadingHTTPServer, minimiz
     )
     _LIFE["shell"] = desktop
     holder["tray"] = WinTray(on_open=desktop.show, on_show=desktop.show, on_quit=desktop.request_quit)
+    start_tray_pulse(holder["tray"], stop)
     desktop.run(minimized=minimized)
 
 
@@ -3419,6 +3872,7 @@ def main() -> int:
                 on_show=lambda: webbrowser.open(url),
                 on_quit=lambda: (stop.set(), threading.Thread(target=httpd.shutdown, daemon=True).start()),
             )
+            start_tray_pulse(tray, stop)
         except Exception:
             tray = None
     try:
