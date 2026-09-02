@@ -27,7 +27,7 @@ from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
 APP_NAME = "Flash Monitor"
 APP_ID = "FlashMonitor"
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 GITHUB_REPO = "finnheihei/FlashMonitor"
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = 8787
