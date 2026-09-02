@@ -52,4 +52,4 @@ New-FlashMonitorShortcut (Join-Path $desktop "Flash Monitor.lnk")
 Write-Host "已安装：$exePath"
 Write-Host "开始菜单和桌面已放快捷方式"
 Start-Process -FilePath $exePath -WorkingDirectory $installDir
-Write-Host "已启动。页面：http://127.0.0.1:8787/"
+Write-Host "已启动桌面窗口。"

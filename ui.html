@@ -204,7 +204,15 @@ PERIODS.forEach(([id, label]) => {
 });
 document.getElementById("q").addEventListener("input", render);
 document.getElementById("sort").addEventListener("change", render);
-document.getElementById("btn-export").onclick = () => { location.href = "/api/export.csv"; };
+document.getElementById("btn-export").onclick = async () => {
+  const r = await fetch("/api/export.csv");
+  const blob = await r.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "tun-split.csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
 document.getElementById("btn-reset").onclick = async () => {
   if (!confirm("清零累计和排行时段数据？连接记录文件不会删除。")) return;
   await fetch("/api/reset", { method: "POST" });
@@ -614,7 +622,7 @@ function renderSettings() {
     </label>
     <label class="row">
       <input type="checkbox" ${s.open_browser ? "checked" : ""} onchange="saveSetting('open_browser', this.checked)">
-      <div>手动启动时打开页面<div class="hint">开机自启始终不弹浏览器。</div></div>
+      <div>手动启动时另外打开浏览器<div class="hint">已经有自己的窗口，一般不用勾。开机自启始终不弹浏览器。</div></div>
     </label>
     <h2>采集</h2>
     <div class="field">

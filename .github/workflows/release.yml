@@ -19,7 +19,8 @@ jobs:
       - name: Build exe
         run: |
           python -m pip install -q pyinstaller
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name FlashMonitor --icon icon.ico --add-data "ui.html;." --add-data "icon.ico;." --hidden-import tkinter monitor.py
+          python -c "from webview_win import prepare_loader_for_build; prepare_loader_for_build()"
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name FlashMonitor --icon icon.ico --add-data "ui.html;." --add-data "icon.ico;." --add-binary "native/WebView2Loader.dll;." monitor.py
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:

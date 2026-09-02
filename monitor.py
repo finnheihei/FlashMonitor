@@ -158,7 +158,7 @@ def load_page() -> str:
 
 DEFAULT_SETTINGS = {
     "autostart": False,
-    "open_browser": True,
+    "open_browser": False,
     "start_minimized": False,
     "close_to_tray": True,
     "clash_api": "http://127.0.0.1:9090",
@@ -259,7 +259,7 @@ def launch_command(*, autostart: bool = False) -> str:
     flags = ["--gui"]
     if autostart or SETTINGS.data.get("start_minimized"):
         flags.append("--minimized")
-    if autostart or not SETTINGS.data.get("open_browser", True):
+    if autostart or not SETTINGS.data.get("open_browser", False):
         flags.append("--no-browser")
     flag_s = " ".join(flags)
     if frozen():
@@ -503,6 +503,12 @@ def schedule_replace_and_restart(src: Path, dest: Path) -> None:
 
 def shutdown_after_update() -> None:
     time.sleep(0.5)
+    shell = _LIFE.get("shell")
+    if shell is not None:
+        try:
+            shell.close()
+        except Exception:
+            pass
     stop = _LIFE.get("stop")
     if stop is not None:
         stop.set()
@@ -2984,8 +2990,7 @@ class WinTray:
 
         def popup_menu() -> None:
             menu = user32.CreatePopupMenu()
-            user32.AppendMenuW(menu, 0, self.ID_OPEN, "打开页面")
-            user32.AppendMenuW(menu, 0, self.ID_SHOW, "显示窗口")
+            user32.AppendMenuW(menu, 0, self.ID_OPEN, "打开")
             user32.AppendMenuW(menu, 0, self.ID_QUIT, "退出")
             user32.SetForegroundWindow(hwnd)
             pt = POINT()
@@ -2995,9 +3000,7 @@ class WinTray:
             user32.PostMessageW(hwnd, WM_COMMAND, cmd, 0)
 
         def handle_command(cmd: int) -> None:
-            if cmd == self.ID_OPEN:
-                self.on_open()
-            elif cmd == self.ID_SHOW:
+            if cmd in (self.ID_OPEN, self.ID_SHOW):
                 self.on_show()
             elif cmd == self.ID_QUIT:
                 self.on_quit()
@@ -3085,101 +3088,288 @@ class WinTray:
             ctypes.windll.user32.PostMessageW(self.hwnd, 0x0012, 0, 0)  # WM_QUIT
 
 
-def run_gui(url: str, stop: threading.Event, httpd: ThreadingHTTPServer, minimized: bool = False) -> None:
-    import tkinter as tk
+def find_edge() -> Path | None:
+    roots = []
+    for key in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+        raw = os.environ.get(key)
+        if raw:
+            roots.append(Path(raw))
+    for root in roots:
+        for rel in (
+            Path("Microsoft") / "Edge" / "Application" / "msedge.exe",
+            Path("Microsoft") / "Edge Beta" / "Application" / "msedge.exe",
+        ):
+            p = root / rel
+            if p.is_file():
+                return p
+    return None
 
-    root = tk.Tk()
-    root.title(APP_NAME)
-    root.resizable(False, False)
-    ico = resource_dir() / "icon.ico"
-    if ico.is_file():
+
+def window_profile_dir() -> Path:
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        path = Path(local) / APP_ID / "window"
+    else:
+        path = data_home() / "window"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def wait_http(url: str, timeout: float = 8.0) -> None:
+    t0 = time.time()
+    while time.time() - t0 < timeout:
         try:
-            root.iconbitmap(str(ico))
-        except tk.TclError:
-            pass
-    if not minimized:
-        try:
-            root.attributes("-topmost", True)
-            root.after(400, lambda: root.attributes("-topmost", False))
-        except tk.TclError:
-            pass
-    frm = tk.Frame(root, padx=18, pady=16)
-    frm.pack()
-    tk.Label(frm, text=f"{APP_NAME} 正在运行", font=("Segoe UI", 12, "bold")).pack(anchor="w")
-    tk.Label(frm, text=f"v{APP_VERSION}  ·  {url}", fg="#1a5fb4").pack(anchor="w", pady=(2, 4))
-    tk.Label(frm, text="关闭窗口会藏到托盘，采集不停。", fg="#6b6b6b").pack(anchor="w", pady=(0, 12))
-    btns = tk.Frame(frm)
-    btns.pack(anchor="w")
-    balloon_once = {"done": False}
-
-    def hop(fn):
-        def wrapped(*_a, **_k) -> None:
-            try:
-                root.after(0, fn)
-            except tk.TclError:
-                fn()
-
-        return wrapped
-
-    def show_window() -> None:
-        try:
-            root.deiconify()
-            root.lift()
-            root.state("normal")
-        except tk.TclError:
-            pass
-
-    def open_page() -> None:
-        webbrowser.open(url)
-        show_window()
-
-    def hide_to_tray() -> None:
-        try:
-            root.withdraw()
-        except tk.TclError:
+            with urlopen(url, timeout=0.6) as resp:
+                resp.read(64)
             return
-        if not balloon_once["done"]:
-            balloon_once["done"] = True
+        except Exception:
+            time.sleep(0.12)
+
+
+class DesktopShell:
+    """Edge --app 无标签窗口，当作本机桌面端。"""
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+        self.proc: subprocess.Popen[bytes] | None = None
+        self.hwnd = 0
+        self._edge = find_edge()
+
+    @property
+    def available(self) -> bool:
+        return self._edge is not None and self._edge.is_file()
+
+    def _enum_top_windows(self) -> list[int]:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        handles: list[int] = []
+        WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        @WNDENUMPROC
+        def cb(hwnd, _lparam):
+            if user32.IsWindowVisible(hwnd):
+                handles.append(int(hwnd))
+            return True
+
+        self._enum_cb = cb
+        user32.EnumWindows(cb, 0)
+        return handles
+
+    def _window_title(self, hwnd: int) -> str:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32")
+        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+        user32.GetWindowTextLengthW.restype = ctypes.c_int
+        n = user32.GetWindowTextLengthW(hwnd) + 1
+        buf = ctypes.create_unicode_buffer(max(n, 2))
+        user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        user32.GetWindowTextW(hwnd, buf, len(buf))
+        return buf.value or ""
+
+    def _apply_icon(self, hwnd: int) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        ico = resource_dir() / "icon.ico"
+        if not ico.is_file() or not hwnd:
+            return
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        IMAGE_ICON, LR_LOADFROMFILE = 1, 0x0010
+        WM_SETICON, ICON_SMALL, ICON_BIG = 0x0080, 0, 1
+        user32.LoadImageW.argtypes = [
+            wintypes.HINSTANCE,
+            wintypes.LPCWSTR,
+            wintypes.UINT,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.UINT,
+        ]
+        user32.LoadImageW.restype = wintypes.HANDLE
+        small = user32.LoadImageW(None, str(ico), IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+        big = user32.LoadImageW(None, str(ico), IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
+        if small:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, small)
+        if big:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, big)
+
+    def _window_class(self, hwnd: int) -> str:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32")
+        buf = ctypes.create_unicode_buffer(256)
+        user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        user32.GetClassNameW.restype = ctypes.c_int
+        user32.GetClassNameW(hwnd, buf, 256)
+        return buf.value or ""
+
+    def _window_rect(self, hwnd: int) -> tuple[int, int]:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32")
+        rect = wintypes.RECT()
+        user32.GetWindowRect(hwnd, ctypes.byref(rect))
+        return int(rect.right - rect.left), int(rect.bottom - rect.top)
+
+    def _is_app_frame(self, hwnd: int) -> bool:
+        cls = self._window_class(hwnd)
+        if "Chrome_WidgetWin" not in cls:
+            return False
+        w, h = self._window_rect(hwnd)
+        return w >= 480 and h >= 320
+
+    def _looks_ours(self, hwnd: int) -> bool:
+        if not self._is_app_frame(hwnd):
+            return False
+        title = self._window_title(hwnd)
+        if not title:
+            return True
+        keys = (APP_NAME, "Flash Monitor", "127.0.0.1")
+        return any(k in title for k in keys)
+
+    def _pick_new_hwnd(self, before: set[int]) -> int:
+        for h in self._enum_top_windows():
+            if h in before:
+                continue
+            if self._looks_ours(h):
+                return h
+        return 0
+
+    def alive(self) -> bool:
+        import ctypes
+
+        if self.proc is not None and self.proc.poll() is None:
+            return True
+        if self.hwnd:
             try:
-                tray.balloon(f"{APP_NAME} 还在采集", "点右下角托盘图标可打开窗口。")
+                if ctypes.windll.user32.IsWindow(self.hwnd):
+                    return True
+            except Exception:
+                return False
+        return False
+
+    def show(self) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        if self.alive() and self.hwnd and user32.IsWindow(self.hwnd):
+            SW_RESTORE = 9
+            user32.ShowWindow(self.hwnd, SW_RESTORE)
+            user32.SetForegroundWindow(self.hwnd)
+            return
+        self._launch()
+
+    def _launch(self) -> None:
+        if not self.available or self._edge is None:
+            webbrowser.open(self.url)
+            return
+        wait_http(self.url)
+        before = set(self._enum_top_windows())
+        profile = window_profile_dir()
+        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        self.proc = subprocess.Popen(
+            [
+                str(self._edge),
+                f"--app={self.url}",
+                f"--user-data-dir={profile}",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-sync",
+                "--disable-features=TranslateUI,msSmartScreenProtection",
+                "--window-size=1120,820",
+            ],
+            cwd=str(profile),
+            creationflags=flags,
+        )
+        deadline = time.time() + 12
+        hwnd = 0
+        while time.time() < deadline:
+            time.sleep(0.12)
+            hwnd = self._pick_new_hwnd(before)
+            if hwnd:
+                break
+        if not hwnd:
+            hwnd = self._pick_new_hwnd(set())
+        self.hwnd = hwnd
+        if hwnd:
+            import ctypes
+
+            ctypes.windll.user32.SetWindowTextW(hwnd, APP_NAME)
+            self._apply_icon(hwnd)
+
+    def close(self) -> None:
+        import ctypes
+
+        if self.hwnd:
+            try:
+                ctypes.windll.user32.PostMessageW(self.hwnd, 0x0010, 0, 0)
             except Exception:
                 pass
+        if self.proc is not None and self.proc.poll() is None:
+            try:
+                self.proc.terminate()
+            except OSError:
+                pass
+        self.hwnd = 0
+        self.proc = None
 
-    def on_close() -> None:
-        if SETTINGS.data.get("close_to_tray", True):
-            hide_to_tray()
-        else:
-            quit_app()
 
-    def quit_app() -> None:
-        stop.set()
+def run_gui(url: str, stop: threading.Event, httpd: ThreadingHTTPServer, minimized: bool = False) -> None:
+    from webview_win import FlashDesktop, placement_path, prepare_process, webview_user_dir
+
+    prepare_process()
+    wait_http(url)
+    holder: dict[str, Any] = {"tray": None}
+
+    def first_hide() -> None:
+        tray = holder["tray"]
+        if tray is None:
+            return
         try:
-            tray.stop()
+            tray.balloon(f"{APP_NAME} 还在采集", "点右下角托盘图标可打开窗口。")
         except Exception:
             pass
+
+    def on_quit() -> None:
+        stop.set()
+        tray = holder["tray"]
+        if tray is not None:
+            try:
+                tray.stop()
+            except Exception:
+                pass
         threading.Thread(target=httpd.shutdown, daemon=True).start()
-        try:
-            root.destroy()
-        except tk.TclError:
-            pass
 
-    tray = WinTray(on_open=hop(open_page), on_show=hop(show_window), on_quit=hop(quit_app))
-
-    tk.Button(btns, text="打开页面", width=12, command=open_page).pack(side="left")
-    tk.Button(btns, text="藏到托盘", width=12, command=hide_to_tray).pack(side="left", padx=(8, 0))
-    tk.Button(btns, text="退出", width=12, command=quit_app).pack(side="left", padx=(8, 0))
-    root.protocol("WM_DELETE_WINDOW", on_close)
-    if minimized or SETTINGS.data.get("start_minimized"):
-        root.after(80, hide_to_tray)
-    root.mainloop()
+    desktop = FlashDesktop(
+        title=APP_NAME,
+        url=url,
+        icon=resource_dir() / "icon.ico",
+        userdata=webview_user_dir(),
+        placement_file=placement_path(),
+        fallback=lambda: DesktopShell(url),
+        should_hide=lambda: bool(SETTINGS.data.get("close_to_tray", True)),
+        on_first_hide=first_hide,
+        on_quit=on_quit,
+    )
+    _LIFE["shell"] = desktop
+    holder["tray"] = WinTray(on_open=desktop.show, on_show=desktop.show, on_quit=desktop.request_quit)
+    desktop.run(minimized=minimized)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=f"{APP_NAME}：轻量监视 FlClash / mihomo 分流（TUN 或系统代理）")
     parser.add_argument("--port", type=int, default=LISTEN_PORT)
     parser.add_argument("--once", action="store_true", help="打印一次 JSON 后退出")
-    parser.add_argument("--gui", action="store_true", help="弹出控制窗口（打包 exe 时默认开启）")
+    parser.add_argument("--gui", action="store_true", help="打开桌面窗口（Windows 默认开启）")
+    parser.add_argument("--no-gui", action="store_true", help="只采集，不打开窗口")
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--browser", action="store_true", help="另外用系统浏览器打开")
     parser.add_argument("--minimized", action="store_true")
     args = parser.parse_args()
     if autostart_enabled():
@@ -3206,12 +3396,11 @@ def main() -> int:
     threading.Thread(target=traffic_reader, args=(stop,), daemon=True, name="clash-traffic").start()
     threading.Thread(target=poller, args=(ports, stop), daemon=True).start()
     url = f"http://{LISTEN_HOST}:{args.port}/"
-    use_gui = frozen() or args.gui
-    open_browser = bool(SETTINGS.data.get("open_browser", True)) and not args.no_browser
+    use_gui = (not args.no_gui) and (frozen() or args.gui or sys.platform == "win32")
     minimized = bool(args.minimized or SETTINGS.data.get("start_minimized"))
     if use_gui:
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
-        if open_browser:
+        if args.browser:
             webbrowser.open(url)
         run_gui(url, stop, httpd, minimized=minimized)
         stop.set()

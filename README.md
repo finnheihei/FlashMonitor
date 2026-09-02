@@ -1,6 +1,6 @@
 # Flash Monitor
 
-Windows 上给 [FlClash](https://github.com/chen08209/FlClash) / Clash Meta（mihomo）用的本机流量监视。看哪个程序走代理、哪个走直连、流量去了哪个网站。TUN 和系统代理都能用。
+Windows 上给 [FlClash](https://github.com/chen08209/FlClash) / Clash Meta（mihomo）用的本机流量监视。看哪个程序走代理、哪个走直连、流量去了哪个网站。TUN 和系统代理都能用。Windows 上是自己的桌面窗口（WebView2），关窗口进托盘，采集不停。
 
 只监听 `127.0.0.1`，运行不用装第三方库。
 
@@ -23,7 +23,8 @@ irm https://github.com/finnheihei/FlashMonitor/releases/latest/download/install.
 - **漏网**：开了 TUN 时，IPv6、旁路 VPN、没进 TUN 的连接会单独标出来。只开系统代理时不会把直连公网当成漏网。
 - **连接**：可断开单条 Clash 连接；第一次出现的程序会提示
 - **设置**：开机自启、托盘、日流量提醒、Clash 地址和密钥
-- **更新**：页面右上角「更新」从 GitHub 下载最新 `FlashMonitor.exe` 并重启
+- **更新**：窗口右上角「更新」从 GitHub 下载最新 `FlashMonitor.exe` 并重启
+- **桌面窗口**：本机窗口嵌现有页面，任务栏和图标都是 Flash Monitor。关窗口进托盘；没有 WebView2 时才退回 Edge 无标签窗口
 
 ## 从源码运行
 
@@ -39,7 +40,7 @@ start.cmd
 python -u monitor.py --port 8787
 ```
 
-浏览器打开 http://127.0.0.1:8787/
+会打开桌面窗口。只要采集不要窗口时加 `--no-gui`。需要系统已装 WebView2（Win10/11 通常自带）。
 
 打包成 exe（会安装 PyInstaller）：
 
