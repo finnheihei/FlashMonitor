@@ -8,6 +8,7 @@ import csv
 import io
 import ipaddress
 import json
+import math
 import os
 import re
 import shutil
@@ -26,9 +27,12 @@ from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
 APP_NAME = "Flash Monitor"
 APP_ID = "FlashMonitor"
+APP_VERSION = "0.4.0"
+GITHUB_REPO = "finnheihei/FlashMonitor"
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = 8787
 ACTUAL_PORT = LISTEN_PORT
+_LIFE: dict[str, Any] = {"stop": None, "httpd": None}
 
 
 def frozen() -> bool:
@@ -245,6 +249,8 @@ class AppSettings:
             "data_dir": str(DATA_DIR),
             "page": f"http://{LISTEN_HOST}:{ACTUAL_PORT}/",
             "launch": launch_command(autostart=True),
+            "version": APP_VERSION,
+            "frozen": frozen(),
             "error": getattr(self, "error", "") or "",
         }
 
@@ -365,6 +371,168 @@ def ensure_shortcuts() -> None:
 
 
 SETTINGS = AppSettings(SETTINGS_FILE)
+
+_UPDATE_LOCK = threading.Lock()
+_UPDATE_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
+
+
+def parse_version(text: str) -> tuple[int, int, int]:
+    raw = (text or "").strip().lstrip("vV")
+    parts: list[int] = []
+    for bit in raw.split("."):
+        digits = ""
+        for ch in bit:
+            if ch.isdigit():
+                digits += ch
+            else:
+                break
+        try:
+            parts.append(int(digits or 0))
+        except ValueError:
+            parts.append(0)
+        if len(parts) == 3:
+            break
+    while len(parts) < 3:
+        parts.append(0)
+    return parts[0], parts[1], parts[2]
+
+
+def install_exe_path() -> Path:
+    if frozen():
+        return Path(sys.executable).resolve()
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        return Path(local) / APP_ID / "FlashMonitor.exe"
+    return app_dir() / "FlashMonitor.exe"
+
+
+def latest_release(*, force: bool = False) -> dict[str, Any]:
+    now = time.time()
+    cached = _UPDATE_CACHE.get("data")
+    if not force and isinstance(cached, dict) and now - float(_UPDATE_CACHE.get("ts") or 0) < 90:
+        return dict(cached)
+    req = Request(
+        f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest",
+        headers={"Accept": "application/vnd.github+json", "User-Agent": APP_ID},
+    )
+    with urlopen(req, timeout=12) as resp:
+        data = json.loads(resp.read().decode("utf-8", "replace"))
+    if not isinstance(data, dict):
+        raise RuntimeError("GitHub 返回无法识别")
+    tag = str(data.get("tag_name") or "")
+    exe_url = ""
+    for asset in data.get("assets") or []:
+        if not isinstance(asset, dict):
+            continue
+        if str(asset.get("name") or "").lower() == "flashmonitor.exe":
+            exe_url = str(asset.get("browser_download_url") or "")
+            break
+    info = {
+        "ok": True,
+        "current": APP_VERSION,
+        "tag": tag,
+        "latest": tag.lstrip("vV") or tag,
+        "name": str(data.get("name") or tag),
+        "notes": str(data.get("body") or "")[:1200],
+        "exe_url": exe_url,
+        "html_url": str(data.get("html_url") or f"https://github.com/{GITHUB_REPO}/releases/latest"),
+        "newer": parse_version(tag) > parse_version(APP_VERSION),
+        "frozen": frozen(),
+    }
+    _UPDATE_CACHE["ts"] = now
+    _UPDATE_CACHE["data"] = info
+    return dict(info)
+
+
+def download_latest_exe(url: str, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    req = Request(url, headers={"User-Agent": APP_ID, "Accept": "application/octet-stream"})
+    with urlopen(req, timeout=180) as resp:
+        blob = resp.read()
+    if len(blob) < 1_000_000:
+        raise RuntimeError("下载文件太小，发行版可能还没打好包")
+    tmp = dest.with_name(dest.name + ".download")
+    tmp.write_bytes(blob)
+    tmp.replace(dest)
+
+
+def schedule_replace_and_restart(src: Path, dest: Path) -> None:
+    pid = os.getpid()
+    helper = dest.with_name("_fm_update.ps1")
+    src_s = str(src)
+    dest_s = str(dest)
+    work = str(dest.parent)
+    helper.write_text(
+        "\n".join(
+            [
+                "$ErrorActionPreference = 'Continue'",
+                f"$waitPid = {pid}",
+                f"$src = {json.dumps(src_s)}",
+                f"$dst = {json.dumps(dest_s)}",
+                f"$work = {json.dumps(work)}",
+                "for ($i = 0; $i -lt 40; $i++) {",
+                "  if (-not (Get-Process -Id $waitPid -ErrorAction SilentlyContinue)) { break }",
+                "  Start-Sleep -Milliseconds 400",
+                "}",
+                "Start-Sleep -Milliseconds 600",
+                "Move-Item -Force -LiteralPath $src -Destination $dst",
+                "Start-Process -FilePath $dst -WorkingDirectory $work -ArgumentList '--gui'",
+                "Remove-Item -Force -LiteralPath $MyInvocation.MyCommand.Path -ErrorAction SilentlyContinue",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | 0x00000008 | 0x00000200
+    subprocess.Popen(
+        [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-WindowStyle",
+            "Hidden",
+            "-File",
+            str(helper),
+        ],
+        cwd=work,
+        creationflags=flags,
+        close_fds=True,
+    )
+
+
+def shutdown_after_update() -> None:
+    time.sleep(0.5)
+    stop = _LIFE.get("stop")
+    if stop is not None:
+        stop.set()
+    httpd = _LIFE.get("httpd")
+    if httpd is not None:
+        try:
+            httpd.shutdown()
+        except Exception:
+            pass
+    time.sleep(0.2)
+    os._exit(0)
+
+
+def apply_app_update() -> dict[str, Any]:
+    if not _UPDATE_LOCK.acquire(blocking=False):
+        return {"ok": False, "error": "已经在更新"}
+    try:
+        info = latest_release(force=True)
+        url = str(info.get("exe_url") or "")
+        if not url:
+            return {"ok": False, "error": "最新发行版里还没有 FlashMonitor.exe，过一会儿再试"}
+        dest = install_exe_path()
+        staging = dest.with_name("FlashMonitor.exe.new")
+        download_latest_exe(url, staging)
+        schedule_replace_and_restart(staging, dest)
+        threading.Thread(target=shutdown_after_update, daemon=True).start()
+        return {"ok": True, "restarting": True, "latest": info.get("latest") or "", "path": str(dest)}
+    finally:
+        _UPDATE_LOCK.release()
+
 
 def _run(cmd: list[str], timeout: float = 12.0) -> str:
     creation = 0
@@ -658,12 +826,56 @@ def iface_kind(alias: str) -> str:
     return a or "other"
 
 
+def as_int(v: Any) -> int:
+    if v is None or v is False:
+        return 0
+    if isinstance(v, bool):
+        return int(v)
+    if isinstance(v, (int, float)):
+        return int(v)
+    if isinstance(v, str):
+        try:
+            return int(float(v.strip() or 0))
+        except ValueError:
+            return 0
+    if isinstance(v, dict):
+        for k in ("Value", "value", "Int64", "int64"):
+            if k in v:
+                return as_int(v[k])
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+_CLASH_BASE_LOCK = threading.Lock()
+_CLASH_BASE_OK = ""
+_CLASH_LIVE = {"sample_at": 0.0}
+
+
+def remember_clash_base(url: str) -> None:
+    global _CLASH_BASE_OK
+    base = url[: -len("/connections")] if url.endswith("/connections") else url.rstrip("/")
+    with _CLASH_BASE_LOCK:
+        _CLASH_BASE_OK = base
+
+
+def clash_sampled_recently(window: float = 1.8) -> bool:
+    ts = float(_CLASH_LIVE.get("sample_at") or 0)
+    return ts > 0 and (time.monotonic() - ts) < window
+
+
 def clash_base_urls() -> tuple[str, ...]:
     base = str(SETTINGS.data.get("clash_api") or "http://127.0.0.1:9090").rstrip("/")
     urls = [base]
     for extra in ("http://127.0.0.1:9090", "http://127.0.0.1:9091", "http://127.0.0.1:9097"):
         if extra not in urls:
             urls.append(extra)
+    with _CLASH_BASE_LOCK:
+        ok = _CLASH_BASE_OK
+    if ok and ok in urls:
+        urls.remove(ok)
+        urls.insert(0, ok)
     return tuple(urls)
 
 
@@ -679,21 +891,29 @@ def clash_headers() -> dict[str, str]:
     return headers
 
 
-def try_clash_payload() -> dict[str, Any]:
-    for url in clash_connection_urls():
+def try_clash_payload() -> dict[str, Any] | None:
+    urls = clash_connection_urls()
+    for i, url in enumerate(urls):
         try:
             req = Request(url, headers=clash_headers())
-            with urlopen(req, timeout=2.0) as resp:
+            with urlopen(req, timeout=2.0 if i == 0 else 0.5) as resp:
                 data = json.loads(resp.read().decode("utf-8", "replace"))
-            if isinstance(data, dict):
-                return {
-                    "connections": data.get("connections") or [],
-                    "uploadTotal": int(data.get("uploadTotal") or 0),
-                    "downloadTotal": int(data.get("downloadTotal") or 0),
-                }
+            if not isinstance(data, dict):
+                continue
+            conns = data.get("connections")
+            if conns is None:
+                conns = []
+            if not isinstance(conns, list):
+                continue
+            remember_clash_base(url)
+            return {
+                "connections": conns,
+                "uploadTotal": as_int(data.get("uploadTotal")),
+                "downloadTotal": as_int(data.get("downloadTotal")),
+            }
         except Exception:
             continue
-    return {"connections": [], "uploadTotal": 0, "downloadTotal": 0}
+    return None
 
 
 _CLASH_CFG_LOCK = threading.Lock()
@@ -740,7 +960,8 @@ def try_clash_configs() -> dict[str, Any]:
 
 
 def try_clash_connections() -> list[dict[str, Any]]:
-    return try_clash_payload()["connections"]
+    payload = try_clash_payload()
+    return list((payload or {}).get("connections") or [])
 
 
 def close_clash_connection(cid: str) -> bool:
@@ -1021,8 +1242,8 @@ def clash_to_flow(conn: dict[str, Any]) -> dict[str, Any]:
         "remote": remote,
         "route": via or typ,
         "note": note,
-        "upload": int(conn.get("upload") or 0),
-        "download": int(conn.get("download") or 0),
+        "upload": as_int(conn.get("upload")),
+        "download": as_int(conn.get("download")),
         "start": start,
         "closed": False,
     }
@@ -1109,6 +1330,13 @@ class TrafficStore:
         }
         self.proc_speed: dict[str, dict[str, float]] = {}
         self._tick_at = time.monotonic()
+        self._primed = False
+        self._tot_up: int | None = None
+        self._tot_down: int | None = None
+        self._tot_at = 0.0
+        self._tot_ready = False
+        self.total_speed = {"up": 0.0, "down": 0.0}
+        self.wire_speed = {"up": 0.0, "down": 0.0, "at": 0.0}
         self.history: list[dict[str, float]] = []
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.is_file():
@@ -1794,38 +2022,40 @@ class TrafficStore:
         acc = {"up": 0, "down": 0, "proxy_up": 0, "proxy_down": 0, "direct_up": 0, "direct_down": 0}
         per: dict[str, list[int]] = {}
         with self.lock:
+            primed = self._primed
             for f in flows:
                 cid = str(f.get("id") or "")
                 if not cid:
                     continue
                 seen.add(cid)
-                up = int(f.get("upload") or 0)
-                down = int(f.get("download") or 0)
+                up = as_int(f.get("upload"))
+                down = as_int(f.get("download"))
                 prev = self.last_bytes.get(cid)
                 if prev is None:
-                    self.last_bytes[cid] = (up, down)
+                    du = up if primed else 0
+                    dd = down if primed else 0
                 else:
                     du = up - prev[0]
                     dd = down - prev[1]
-                    if du or dd:
-                        proc = str(f.get("process") or "未知")
-                        ob = str(f.get("outbound") or "")
-                        self._add(proc, du, dd, ob, host=str(f.get("remote") or ""), node=str(f.get("node") or ""))
-                        dirty = True
+                self.last_bytes[cid] = (up, down)
+                if du or dd:
+                    proc = str(f.get("process") or "未知")
+                    ob = str(f.get("outbound") or "")
+                    self._add(proc, du, dd, ob, host=str(f.get("remote") or ""), node=str(f.get("node") or ""))
+                    dirty = True
+                    if du > 0:
+                        acc["up"] += du
+                    if dd > 0:
+                        acc["down"] += dd
+                    if ob in {"proxy", "direct"}:
                         if du > 0:
-                            acc["up"] += du
+                            acc[f"{ob}_up"] += du
                         if dd > 0:
-                            acc["down"] += dd
-                        if ob in {"proxy", "direct"}:
-                            if du > 0:
-                                acc[f"{ob}_up"] += du
-                            if dd > 0:
-                                acc[f"{ob}_down"] += dd
-                            key = f"{proc}|{ob}"
-                            slot = per.setdefault(key, [0, 0])
-                            slot[0] += max(du, 0)
-                            slot[1] += max(dd, 0)
-                    self.last_bytes[cid] = (up, down)
+                            acc[f"{ob}_down"] += dd
+                        key = f"{proc}|{ob}"
+                        slot = per.setdefault(key, [0, 0])
+                        slot[0] += max(du, 0)
+                        slot[1] += max(dd, 0)
                 self.live[cid] = dict(f)
             gone = [k for k in self.live if k not in seen]
             for k in gone:
@@ -1838,13 +2068,72 @@ class TrafficStore:
             if len(self.closed) > 400:
                 self.closed = self.closed[-250:]
             now = time.monotonic()
-            dt = max(now - self._tick_at, 0.4)
+            dt = max(now - self._tick_at, 0.2)
             self._tick_at = now
-            self.speed = {k: v / dt for k, v in acc.items()}
-            self.proc_speed = {k: {"up": v[0] / dt, "down": v[1] / dt} for k, v in per.items()}
+            alpha = min(1.0, max(0.2, 1.0 - math.exp(-dt / 1.2)))
+            inst = {k: v / dt for k, v in acc.items()}
+            self.speed = {
+                k: (1.0 - alpha) * float(self.speed.get(k) or 0) + alpha * float(inst.get(k) or 0)
+                for k in inst
+            }
+            new_proc: dict[str, dict[str, float]] = {}
+            for key, pair in per.items():
+                old = self.proc_speed.get(key) or {}
+                new_proc[key] = {
+                    "up": (1.0 - alpha) * float(old.get("up") or 0) + alpha * (pair[0] / dt),
+                    "down": (1.0 - alpha) * float(old.get("down") or 0) + alpha * (pair[1] / dt),
+                }
+            for key, old in self.proc_speed.items():
+                if key in new_proc:
+                    continue
+                up = (1.0 - alpha) * float(old.get("up") or 0)
+                down = (1.0 - alpha) * float(old.get("down") or 0)
+                if up >= 1 or down >= 1:
+                    new_proc[key] = {"up": up, "down": down}
+            self.proc_speed = new_proc
+            self._primed = True
             if dirty:
                 self._save_programs()
                 self._save_slots()
+
+    def set_wire_speed(self, up: int, down: int) -> None:
+        with self.lock:
+            self.wire_speed = {
+                "up": float(max(as_int(up), 0)),
+                "down": float(max(as_int(down), 0)),
+                "at": time.monotonic(),
+            }
+
+    def note_totals(self, up_total: int, down_total: int) -> None:
+        up_total = max(as_int(up_total), 0)
+        down_total = max(as_int(down_total), 0)
+        now = time.monotonic()
+        with self.lock:
+            if self._tot_up is not None and self._tot_at:
+                dt = max(now - self._tot_at, 0.2)
+                du = up_total - int(self._tot_up)
+                dd = down_total - int(self._tot_down or 0)
+                if du < 0 or dd < 0:
+                    inst_up = inst_down = 0.0
+                else:
+                    inst_up = du / dt
+                    inst_down = dd / dt
+                alpha = min(1.0, max(0.2, 1.0 - math.exp(-dt / 1.0)))
+                self.total_speed["up"] = (1.0 - alpha) * float(self.total_speed["up"]) + alpha * inst_up
+                self.total_speed["down"] = (1.0 - alpha) * float(self.total_speed["down"]) + alpha * inst_down
+                self._tot_ready = True
+            self._tot_up = up_total
+            self._tot_down = down_total
+            self._tot_at = now
+
+    def decay_speed(self, factor: float = 0.55) -> None:
+        with self.lock:
+            self.speed = {k: float(v) * factor for k, v in self.speed.items()}
+            self.total_speed = {k: float(v) * factor for k, v in self.total_speed.items()}
+            self.proc_speed = {
+                k: {"up": float(v.get("up") or 0) * factor, "down": float(v.get("down") or 0) * factor}
+                for k, v in self.proc_speed.items()
+            }
 
     def reset(self) -> None:
         with self.lock:
@@ -1859,8 +2148,8 @@ class TrafficStore:
             self._save_slots()
 
     def record_history(self) -> None:
+        rec = {"t": float(time.time()), **{k: float(v) for k, v in self.rates().items()}}
         with self.lock:
-            rec = {"t": float(time.time()), **{k: float(v) for k, v in self.speed.items()}}
             self.history.append(rec)
             if len(self.history) > 240:
                 self.history = self.history[-240:]
@@ -1871,7 +2160,16 @@ class TrafficStore:
 
     def rates(self) -> dict[str, float]:
         with self.lock:
-            return dict(self.speed)
+            out = dict(self.speed)
+            now = time.monotonic()
+            wire_at = float(self.wire_speed.get("at") or 0)
+            if wire_at and now - wire_at < 2.5:
+                out["up"] = float(self.wire_speed.get("up") or 0)
+                out["down"] = float(self.wire_speed.get("down") or 0)
+            elif self._tot_ready:
+                out["up"] = float(self.total_speed.get("up") or 0)
+                out["down"] = float(self.total_speed.get("down") or 0)
+            return out
 
     def recent_closed(self, limit: int = 120) -> list[dict[str, Any]]:
         with self.lock:
@@ -2106,6 +2404,9 @@ def snapshot(proxy_ports: set[int]) -> dict[str, Any]:
     names = parse_tasklist()
     conns = parse_netstat()
     payload = try_clash_payload()
+    clash_ok = payload is not None
+    if payload is None:
+        payload = {"connections": [], "uploadTotal": 0, "downloadTotal": 0}
     clash_conns = payload["connections"]
     clash_cfg = try_clash_configs()
     win_proxy, win_ports = windows_proxy_info()
@@ -2170,7 +2471,7 @@ def snapshot(proxy_ports: set[int]) -> dict[str, Any]:
         )
 
     flows = attach_original_process(flows)
-    if clash_conns:
+    if clash_ok:
         keep = [f for f in flows if f["path"] in {"leak", "local", "dns"}]
         api_flows = [clash_to_flow(c) for c in clash_conns]
         local_of = {f"{c['local_ip']}:{c['local_port']}": c["pid"] for c in conns}
@@ -2186,7 +2487,9 @@ def snapshot(proxy_ports: set[int]) -> dict[str, Any]:
             cmd = cmds.get(int(f.get("pid") or 0), "")
             if cmd:
                 f["cmd"] = cmd
-        STORE.update(api_flows)
+        if not clash_sampled_recently():
+            STORE.update(api_flows)
+            STORE.note_totals(as_int(payload.get("uploadTotal")), as_int(payload.get("downloadTotal")))
         for f in api_flows:
             STORE.remember_origin(str(f.get("process") or ""), str(f.get("cmd") or ""), str(f.get("proc_path") or ""))
         flows = api_flows + keep
@@ -2283,7 +2586,8 @@ def snapshot(proxy_ports: set[int]) -> dict[str, Any]:
             "tun_ip": netinfo.get("tunIp") or "",
             "default_v4": default_v4,
             "nodes": nodes[:4],
-            "clash_api": bool(clash_conns),
+            "clash_api": clash_ok,
+            "version": APP_VERSION,
             "proxy_ports": sorted(proxy_ports)[:12],
             "mixed_ports": sorted(mixed_ports)[:8],
             "upload_total": payload.get("uploadTotal") or 0,
@@ -2428,10 +2732,24 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/snapshot":
             with self.lock:
                 data = self.cache.get("snap") or {"error": "warming"}
+            if isinstance(data, dict) and isinstance(data.get("status"), dict):
+                rates = STORE.rates()
+                data = dict(data)
+                status = dict(data["status"])
+                status["up_speed"] = rates.get("up") or 0
+                status["down_speed"] = rates.get("down") or 0
+                data["status"] = status
             self._send(200, json.dumps(data, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
             return
         if path == "/api/settings":
             self._send(200, json.dumps(SETTINGS.public(), ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
+            return
+        if path == "/api/update":
+            try:
+                info = latest_release()
+            except Exception as exc:
+                info = {"ok": False, "current": APP_VERSION, "frozen": frozen(), "error": str(exc), "newer": False}
+            self._send(200, json.dumps(info, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
             return
         if path == "/api/export.csv":
             self.send_response(200)
@@ -2494,6 +2812,14 @@ class Handler(BaseHTTPRequestHandler):
             STORE.ack_new(str(body.get("process") or ""))
             self._send(200, b'{"ok":true}', "application/json; charset=utf-8")
             return
+        if path == "/api/update":
+            try:
+                result = apply_app_update()
+            except Exception as exc:
+                result = {"ok": False, "error": str(exc)}
+            code = 200 if result.get("ok") else 502
+            self._send(code, json.dumps(result, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
+            return
         self.send_error(404)
 
 
@@ -2509,6 +2835,44 @@ def poller(ports: set[int], stop: threading.Event) -> None:
             with Handler.lock:
                 Handler.cache["snap"] = {"error": str(exc), "ts": int(time.time()), "flows": [], "counts": {}, "status": {}}
         stop.wait(2.0)
+
+
+def clash_sampler(stop: threading.Event) -> None:
+    while not stop.is_set():
+        t0 = time.monotonic()
+        payload = try_clash_payload()
+        if payload is None:
+            STORE.decay_speed()
+        else:
+            flows = [clash_to_flow(c) for c in payload.get("connections") or []]
+            STORE.update(flows)
+            STORE.note_totals(as_int(payload.get("uploadTotal")), as_int(payload.get("downloadTotal")))
+            _CLASH_LIVE["sample_at"] = time.monotonic()
+        stop.wait(max(0.15, 1.0 - (time.monotonic() - t0)))
+
+
+def traffic_reader(stop: threading.Event) -> None:
+    while not stop.is_set():
+        connected = False
+        for base in clash_base_urls():
+            if stop.is_set():
+                return
+            try:
+                req = Request(base + "/traffic", headers=clash_headers())
+                with urlopen(req, timeout=30.0) as resp:
+                    remember_clash_base(base)
+                    connected = True
+                    while not stop.is_set():
+                        line = resp.readline()
+                        if not line:
+                            break
+                        data = json.loads(line.decode("utf-8", "replace"))
+                        if isinstance(data, dict):
+                            STORE.set_wire_speed(as_int(data.get("up")), as_int(data.get("down")))
+            except Exception:
+                continue
+        if not connected:
+            stop.wait(1.5)
 
 
 class WinTray:
@@ -2742,7 +3106,7 @@ def run_gui(url: str, stop: threading.Event, httpd: ThreadingHTTPServer, minimiz
     frm = tk.Frame(root, padx=18, pady=16)
     frm.pack()
     tk.Label(frm, text=f"{APP_NAME} 正在运行", font=("Segoe UI", 12, "bold")).pack(anchor="w")
-    tk.Label(frm, text=url, fg="#1a5fb4").pack(anchor="w", pady=(2, 4))
+    tk.Label(frm, text=f"v{APP_VERSION}  ·  {url}", fg="#1a5fb4").pack(anchor="w", pady=(2, 4))
     tk.Label(frm, text="关闭窗口会藏到托盘，采集不停。", fg="#6b6b6b").pack(anchor="w", pady=(0, 12))
     btns = tk.Frame(frm)
     btns.pack(anchor="w")
@@ -2835,8 +3199,12 @@ def main() -> int:
         print(json.dumps(snapshot(ports), ensure_ascii=False, indent=2))
         return 0
     stop = threading.Event()
-    threading.Thread(target=poller, args=(ports, stop), daemon=True).start()
     httpd = ThreadingHTTPServer((LISTEN_HOST, args.port), Handler)
+    _LIFE["stop"] = stop
+    _LIFE["httpd"] = httpd
+    threading.Thread(target=clash_sampler, args=(stop,), daemon=True, name="clash-sample").start()
+    threading.Thread(target=traffic_reader, args=(stop,), daemon=True, name="clash-traffic").start()
+    threading.Thread(target=poller, args=(ports, stop), daemon=True).start()
     url = f"http://{LISTEN_HOST}:{args.port}/"
     use_gui = frozen() or args.gui
     open_browser = bool(SETTINGS.data.get("open_browser", True)) and not args.no_browser

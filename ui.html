@@ -40,6 +40,11 @@
     width: 100%; border: 1px solid var(--line); padding: 5px 8px; background: #fff;
   }
   .rates { color: var(--mute); font-variant-numeric: tabular-nums; }
+  header .upd {
+    background: var(--panel); border: 1px solid var(--line);
+    padding: 4px 10px; cursor: pointer; white-space: nowrap;
+  }
+  header .upd.fresh { background: var(--sel); border-color: #99c9ef; }
   .meta { color: var(--mute); font-size: 12px; margin: 0 0 10px; }
   .period { display: flex; gap: 2px; flex-wrap: wrap; }
   .tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
@@ -106,6 +111,7 @@
     <nav class="nav" id="filters"></nav>
     <label class="search"><input id="q" type="search" placeholder="搜索" autocomplete="off"></label>
     <div class="rates" id="rates"></div>
+    <button type="button" class="upd" id="btn-update">更新</button>
   </header>
   <p class="meta" id="status">采集中…</p>
   <div id="airport" class="airport" hidden></div>
@@ -154,6 +160,7 @@ let leakOnly = false;
 let last = null;
 let settingsCache = null;
 let settingsNote = "";
+let updateInfo = null;
 const opened = new Set();
 let hoverIdx = -1;
 const box = document.getElementById("filters");
@@ -226,7 +233,7 @@ function fmtQuota(n) {
 }
 function fmtSpeed(n) {
   n = Number(n || 0);
-  if (n < 8) return "0";
+  if (n < 1) return "0";
   return fmtBytes(n) + "/s";
 }
 function drawChart() {
@@ -530,6 +537,62 @@ async function saveSetting(key, value) {
 async function openDataDir() {
   await fetch("/api/open-data", { method: "POST" });
 }
+async function peekUpdate() {
+  try {
+    updateInfo = await (await fetch("/api/update")).json();
+    const btn = document.getElementById("btn-update");
+    if (!btn || btn.dataset.busy === "1") return;
+    if (updateInfo && updateInfo.newer) {
+      btn.classList.add("fresh");
+      btn.textContent = "有新版本";
+    } else {
+      btn.classList.remove("fresh");
+      btn.textContent = "更新";
+    }
+    if (filter === "settings") render();
+  } catch {}
+}
+async function doUpdate() {
+  const btn = document.getElementById("btn-update");
+  if (!btn || btn.dataset.busy === "1") return;
+  const old = btn.textContent;
+  btn.dataset.busy = "1";
+  btn.disabled = true;
+  const status = document.getElementById("status");
+  try {
+    btn.textContent = "检查中…";
+    updateInfo = await (await fetch("/api/update")).json();
+    if (updateInfo && updateInfo.error && !updateInfo.latest) throw new Error(updateInfo.error);
+    if (updateInfo && !updateInfo.newer) {
+      btn.classList.remove("fresh");
+      btn.textContent = "已是最新";
+      if (status) status.textContent = "已是最新版本 v" + (updateInfo.current || "");
+      return;
+    }
+    btn.textContent = "下载中…";
+    if (status) status.textContent = "正在下载 GitHub 最新版…";
+    const r = await fetch("/api/update", { method: "POST" });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || "更新失败");
+    btn.textContent = "正在重启…";
+    if (status) status.textContent = "已下载 v" + (d.latest || "") + "，即将重启";
+    setTimeout(() => location.reload(), 5000);
+  } catch (e) {
+    btn.textContent = "更新失败";
+    if (status) status.textContent = "更新失败 " + e.message;
+    setTimeout(() => {
+      btn.textContent = old;
+      btn.dataset.busy = "";
+      btn.disabled = false;
+    }, 2500);
+    return;
+  } finally {
+    if (btn.textContent !== "正在重启…" && btn.textContent !== "更新失败") {
+      btn.dataset.busy = "";
+      btn.disabled = false;
+    }
+  }
+}
 function renderSettings() {
   const s = settingsCache || {};
   const note = s.error
@@ -582,6 +645,14 @@ function renderSettings() {
     <h2>数据</h2>
     <p class="path">${escapeHtml(s.data_dir || "")}</p>
     <button type="button" onclick="openDataDir()">打开数据文件夹</button>
+    <h2>版本</h2>
+    <p>当前 v${escapeHtml(s.version || "")}${s.frozen ? " · 打包版" : " · 源码运行"}</p>
+    <p id="upd-note" class="hint">${updateInfo && updateInfo.latest ? (
+      updateInfo.newer
+        ? `GitHub 最新 v${escapeHtml(updateInfo.latest)}，点右上角「更新」下载并重启。`
+        : `已是最新（GitHub v${escapeHtml(updateInfo.latest || s.version || "")}）。`
+    ) : "点右上角「更新」检查 GitHub 发行版。"}</p>
+    <button type="button" onclick="doUpdate()">立即更新</button>
   </div>`;
 }
 function paintChrome() {
@@ -600,6 +671,7 @@ function paintChrome() {
     s.clash_api ? "已接 Clash" : "未接 Clash 接口",
     (s.tun_up && s.leak_n ? "漏网 " + s.leak_n : ""),
     (s.nodes || []).join(" · ") || "无节点",
+    s.version ? "v" + s.version : "",
     new Date((last.ts || 0) * 1000).toLocaleTimeString()
   ].filter(Boolean);
   document.getElementById("status").textContent = bits.join("  ·  ");
@@ -745,6 +817,8 @@ document.getElementById("main").addEventListener("click", (e) => {
 })();
 tick();
 setInterval(tick, 2000);
+document.getElementById("btn-update").onclick = doUpdate;
+peekUpdate();
 </script>
 </body>
 </html>

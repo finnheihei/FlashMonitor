@@ -23,6 +23,7 @@ irm https://github.com/finnheihei/FlashMonitor/releases/latest/download/install.
 - **漏网**：开了 TUN 时，IPv6、旁路 VPN、没进 TUN 的连接会单独标出来。只开系统代理时不会把直连公网当成漏网。
 - **连接**：可断开单条 Clash 连接；第一次出现的程序会提示
 - **设置**：开机自启、托盘、日流量提醒、Clash 地址和密钥
+- **更新**：页面右上角「更新」从 GitHub 下载最新 `FlashMonitor.exe` 并重启
 
 ## 从源码运行
 
