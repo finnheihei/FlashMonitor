@@ -13,7 +13,7 @@ if errorlevel 1 (
   exit /b 1
 )
 echo Building FlashMonitor.exe ...
-python -m PyInstaller --noconfirm --clean --onefile --windowed --name FlashMonitor --icon icon.ico --add-data "ui.html;." --add-data "icon.ico;." --add-binary "native/WebView2Loader.dll;." monitor.py
+python -m PyInstaller --noconfirm --clean --onefile --windowed --name FlashMonitor --icon icon.ico --version-file versioninfo.txt --add-data "ui.html;." --add-data "icon.ico;." --add-binary "native/WebView2Loader.dll;." monitor.py
 if errorlevel 1 (
   echo Build failed.
   exit /b 1

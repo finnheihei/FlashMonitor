@@ -1,32 +1,39 @@
 # Flash Monitor
 
-Windows 上给 [FlClash](https://github.com/chen08209/FlClash) / Clash Meta（mihomo）用的本机流量监视。看哪个程序走代理、哪个走直连、流量去了哪个网站。TUN 和系统代理都能用。Windows 上是自己的桌面窗口（WebView2），关窗口进托盘，采集不停。
+Windows 上给 [FlClash](https://github.com/chen08209/FlClash) / Clash Meta（mihomo）用的本机流量监视。看哪个程序走代理、哪个走直连、流量去了哪个网站。TUN 和系统代理都能用。
 
-只监听 `127.0.0.1`，运行不用装第三方库。
+桌面窗口（WebView2）+ 托盘。关窗口默认进托盘，采集不停。只监听 `127.0.0.1`，流量记录留在本机。
 
-## 快速安装
+## 安装
 
-Windows PowerShell（不用装 Python）：
+PowerShell（不用装 Python）：
 
 ```powershell
 irm https://github.com/finnheihei/FlashMonitor/releases/latest/download/install.ps1 | iex
 ```
 
-会下载到 `%LOCALAPPDATA%\FlashMonitor`，并在桌面和开始菜单放快捷方式。Clash 客户端要先打开外部控制器。旧版「分光」的流量记录会自动迁过来。
+装到 `%LOCALAPPDATA%\FlashMonitor`，并在桌面和开始菜单放快捷方式。Clash 客户端要先打开外部控制器。旧版「分光」的记录会自动迁过来。
 
-卸载：删掉该文件夹，以及桌面和开始菜单里的「Flash Monitor」。
+卸载（默认保留流量记录）：
 
-## 功能
+```powershell
+powershell -File "$env:LOCALAPPDATA\FlashMonitor\uninstall.ps1"
+```
 
-- **正在跑**：打开就是代理/直连分流条和正在吃流量的程序，不必先翻排行
-- **排行**：按程序、节点、网站；近 1 小时 / 今天 / 7 天 / 30 天 / 累计。程序带图标，可钉住或忽略
-- **分流**：走代理、走直连分两列；点开程序能看到访问过的域名
-- **漏网**：开了 TUN 时，IPv6、旁路 VPN、没进 TUN 的连接会单独标出来。只开系统代理时不会把直连公网当成漏网。
-- **连接**：可断开单条 Clash 连接；第一次出现的程序会提示
-- **托盘**：悬停看速率和谁在跑；新程序、漏网、日流量超限会气泡提示
-- **设置**：开机自启、托盘、忽略名单、日流量提醒、Clash 地址和密钥
-- **更新**：窗口右上角「更新」从 GitHub 下载最新 `FlashMonitor.exe` 并重启
-- **桌面窗口**：本机窗口嵌现有页面，任务栏和图标都是 Flash Monitor。关窗口进托盘；没有 WebView2 时才退回 Edge 无标签窗口
+加 `-PurgeData` 会连记录一起删。
+
+## 能做什么
+
+- **正在跑**：打开就是代理/直连分流条和正在吃流量的程序
+- **排行**：按程序、节点、网站；近 1 小时 / 今天 / 7 天 / 30 天 / 累计。可钉住或忽略
+- **分流**：代理、直连分两列
+- **漏网**：开了 TUN 时，没进 TUN 的连接单独标出来
+- **连接**：可断开单条 Clash 连接
+- **设置**：启动、通知、Clash 接口、机场账期、数据与诊断、关于
+- **更新**：右上角从 GitHub 下载最新 `FlashMonitor.exe` 并重启
+- **单实例**：再开一次会唤起已有窗口
+
+快捷键：`1`–`5` 切换页面，`/` 搜索，`Esc` 清空搜索。
 
 ## 从源码运行
 
@@ -36,35 +43,21 @@ irm https://github.com/finnheihei/FlashMonitor/releases/latest/download/install.
 start.cmd
 ```
 
-或：
+或 `python -u monitor.py --port 8787`。只要采集不要窗口时加 `--no-gui`。
 
-```bat
-python -u monitor.py --port 8787
-```
-
-会打开桌面窗口。只要采集不要窗口时加 `--no-gui`。需要系统已装 WebView2（Win10/11 通常自带）。
-
-打包成 exe（会安装 PyInstaller）：
-
-```bat
-build.cmd
-```
-
-生成 `dist\FlashMonitor.exe`。流量记录写在 exe 同目录的 `data\`。
+打包：`build.cmd` → `dist\FlashMonitor.exe`。
 
 ## 接客户端
 
-**FlClash**  
-设置里打开外部控制器。Flash Monitor 默认连 `http://127.0.0.1:9090`。
+**FlClash**：设置里打开外部控制器。默认 `http://127.0.0.1:9090`。
 
-**Clash Verge**  
-默认不开放 HTTP 接口。打开外部控制器（常见 `127.0.0.1:9097`），把地址和 secret 填进 Flash Monitor 的「设置」。
+**Clash Verge**：打开外部控制器（常见 `127.0.0.1:9097`），把地址和 secret 填进「设置 → 连接」。
 
 ## 注意
 
-- 页面只有本机打得开。
-- `data\` 是流量和设置，不要提交。
-- 关窗口默认藏到托盘，采集不停。彻底退出用托盘菜单或窗口里的「退出」。
+- 页面只有本机打得开。记录在 `%LOCALAPPDATA%\FlashMonitor\data`（源码运行则在程序目录 `data\`）。
+- 关窗口默认藏到托盘。彻底退出用托盘「退出 Flash Monitor」。
+- 打包版没有代码签名。Windows Defender 有时会把 exe 误报成 `Trojan:Win32/Bearfoos` 并删除。到「Windows 安全中心 → 保护历史记录」允许，或给安装目录加排除项。日常开发用源码运行即可。
 
 ## License
 

@@ -29,7 +29,7 @@ from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
 APP_NAME = "Flash Monitor"
 APP_ID = "FlashMonitor"
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.7.0"
 GITHUB_REPO = "finnheihei/FlashMonitor"
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = 8787
@@ -186,6 +186,14 @@ DEFAULT_SETTINGS = {
     "quota_total_mb": 0,
     "quota_program_mb": 0,
     "sub_url": "",
+    "show_airport": True,
+    "notify_new_app": False,
+    "notify_leak": True,
+    "notify_quota": True,
+    "notify_hide": False,
+    "show_new_banner": True,
+    "last_filter": "rank",
+    "last_period": "today",
     "ignored": [],
     "pinned": [],
 }
@@ -214,6 +222,19 @@ def ignored_set() -> set[str]:
 
 def pinned_list() -> list[str]:
     return as_name_list(SETTINGS.data.get("pinned"))
+
+
+def ui_prefs() -> dict[str, Any]:
+    d = SETTINGS.data
+    return {
+        "ignored": as_name_list(d.get("ignored")),
+        "pinned": pinned_list(),
+        "show_airport": bool(d.get("show_airport", True)),
+        "notify_new_app": bool(d.get("notify_new_app", False)),
+        "notify_leak": bool(d.get("notify_leak", True)),
+        "notify_quota": bool(d.get("notify_quota", True)),
+        "show_new_banner": bool(d.get("show_new_banner", True)),
+    }
 
 
 def icon_dir() -> Path:
@@ -441,6 +462,19 @@ class AppSettings:
                 self.data["sub_url"] = url
             else:
                 self.data["sub_url"] = ""
+        if "show_airport" in patch:
+            self.data["show_airport"] = bool(patch["show_airport"])
+        for key in ("notify_new_app", "notify_leak", "notify_quota", "notify_hide", "show_new_banner"):
+            if key in patch:
+                self.data[key] = bool(patch[key])
+        if "last_filter" in patch:
+            val = str(patch.get("last_filter") or "rank")
+            if val in {"rank", "lanes", "conns", "closed", "settings"}:
+                self.data["last_filter"] = val
+        if "last_period" in patch:
+            val = str(patch.get("last_period") or "today")
+            if val in {"1h", "today", "7d", "30d", "all"}:
+                self.data["last_period"] = val
         if "ignored" in patch and isinstance(patch["ignored"], list) and "process" not in patch:
             self.data["ignored"] = as_name_list(patch["ignored"])
         if "pinned" in patch and isinstance(patch["pinned"], list) and "process" not in patch:
@@ -487,6 +521,9 @@ class AppSettings:
             "launch": launch_command(autostart=True),
             "version": APP_VERSION,
             "frozen": frozen(),
+            "install_dir": str(install_exe_path().parent),
+            "github": f"https://github.com/{GITHUB_REPO}",
+            "license": "MIT",
             "error": getattr(self, "error", "") or "",
         }
 
@@ -564,15 +601,17 @@ def _shell_folder(csidl: int) -> Path:
     return Path(buf.value)
 
 
-def write_shortcut(lnk: Path, target: str, workdir: str, desc: str) -> None:
+def write_shortcut(lnk: Path, target: str, workdir: str, desc: str, *, args: str = "", icon: str = "") -> None:
     lnk.parent.mkdir(parents=True, exist_ok=True)
+    icon_loc = icon or (target + ",0")
     cmd = (
         "$ws = New-Object -ComObject WScript.Shell; "
         f"$sc = $ws.CreateShortcut({_ps_quote(str(lnk))}); "
         f"$sc.TargetPath = {_ps_quote(target)}; "
+        f"$sc.Arguments = {_ps_quote(args)}; "
         f"$sc.WorkingDirectory = {_ps_quote(workdir)}; "
         f"$sc.Description = {_ps_quote(desc)}; "
-        f"$sc.IconLocation = {_ps_quote(target + ',0')}; "
+        f"$sc.IconLocation = {_ps_quote(icon_loc)}; "
         "$sc.Save()"
     )
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -584,24 +623,38 @@ def write_shortcut(lnk: Path, target: str, workdir: str, desc: str) -> None:
     )
 
 
+def shortcut_launch() -> tuple[str, str, str]:
+    workdir = str(app_dir())
+    ico = resource_dir() / "icon.ico"
+    icon = str(ico) if ico.is_file() else ""
+    if frozen():
+        return str(Path(sys.executable).resolve()), "", icon or (str(Path(sys.executable).resolve()) + ",0")
+    py = Path(sys.executable)
+    helper = py.with_name("pythonw.exe")
+    target = str(helper if helper.is_file() else py)
+    args = f'"{Path(__file__).resolve()}" --gui --no-browser'
+    return target, args, icon or (target + ",0")
+
+
 def ensure_shortcuts() -> None:
-    if sys.platform != "win32" or not frozen():
+    if sys.platform != "win32":
         return
-    target = str(Path(sys.executable).resolve())
-    workdir = str(Path(target).parent)
+    target, args, icon = shortcut_launch()
     desc = f"{APP_NAME} — Clash 流量监视"
     try:
         desktop = _shell_folder(0x0010)
-        programs = _shell_folder(0x0002)
+        folders = [desktop]
+        if frozen():
+            folders.append(_shell_folder(0x0002))
     except OSError:
         return
-    for folder in (desktop, programs):
+    for folder in folders:
         try:
             (folder / "分光.lnk").unlink(missing_ok=True)
         except OSError:
             pass
         try:
-            write_shortcut(folder / f"{APP_NAME}.lnk", target, workdir, desc)
+            write_shortcut(folder / f"{APP_NAME}.lnk", target, str(app_dir()), desc, args=args, icon=icon)
         except OSError:
             pass
 
@@ -642,6 +695,94 @@ def install_exe_path() -> Path:
     return app_dir() / "FlashMonitor.exe"
 
 
+def app_log(msg: str) -> None:
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        path = DATA_DIR / "app.log"
+        line = datetime.now().strftime("%Y-%m-%d %H:%M:%S ") + msg + "\n"
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(line)
+        if path.stat().st_size > 512_000:
+            bak = path.with_suffix(".log.1")
+            bak.unlink(missing_ok=True)
+            path.replace(bak)
+    except OSError:
+        pass
+
+
+def product_diag() -> dict[str, Any]:
+    snap: dict[str, Any] = {}
+    with Handler.lock:
+        raw = Handler.cache.get("snap")
+        if isinstance(raw, dict):
+            snap = raw
+    status = snap.get("status") if isinstance(snap.get("status"), dict) else {}
+    return {
+        "app": APP_NAME,
+        "version": APP_VERSION,
+        "frozen": frozen(),
+        "page": f"http://{LISTEN_HOST}:{ACTUAL_PORT}/",
+        "data_dir": str(DATA_DIR),
+        "install_dir": str(install_exe_path().parent),
+        "clash_api": SETTINGS.data.get("clash_api"),
+        "clash_ok": bool(status.get("clash_api")),
+        "mode": status.get("mode") or "off",
+        "github": f"https://github.com/{GITHUB_REPO}",
+        "platform": sys.platform,
+        "python": sys.version.split()[0],
+    }
+
+
+def test_clash_link() -> dict[str, Any]:
+    t0 = time.perf_counter()
+    payload = try_clash_payload()
+    ms = int((time.perf_counter() - t0) * 1000)
+    if payload is None:
+        return {
+            "ok": False,
+            "ms": ms,
+            "error": "连不上外部控制器。在 FlClash 或 Clash Verge 打开外部控制器，默认地址 http://127.0.0.1:9090。",
+        }
+    return {
+        "ok": True,
+        "ms": ms,
+        "connections": len(payload.get("connections") or []),
+        "base": _CLASH_BASE_OK or SETTINGS.data.get("clash_api") or "",
+    }
+
+
+def activate_running_window() -> bool:
+    if sys.platform != "win32":
+        return False
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
+    user32.FindWindowW.restype = wintypes.HWND
+    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    hwnd = user32.FindWindowW("FlashMonitorWnd", None)
+    if not hwnd:
+        hwnd = user32.FindWindowW(None, APP_NAME)
+    if not hwnd:
+        return False
+    user32.ShowWindow(hwnd, 9)
+    user32.SetForegroundWindow(hwnd)
+    return True
+
+
+def claim_single_instance() -> bool:
+    if sys.platform != "win32":
+        return True
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel32.CreateMutexW.restype = wintypes.HANDLE
+    handle = kernel32.CreateMutexW(None, False, f"Local\\{APP_ID}.SingleInstance")
+    _LIFE["mutex"] = handle
+    if ctypes.get_last_error() == 183:
+        activate_running_window()
+        return False
+    return True
+
+
 def latest_release(*, force: bool = False) -> dict[str, Any]:
     now = time.time()
     cached = _UPDATE_CACHE.get("data")
@@ -680,6 +821,21 @@ def latest_release(*, force: bool = False) -> dict[str, Any]:
     return dict(info)
 
 
+DEFENDER_HINT = (
+    "Windows Defender 常把未签名的打包版误报成 Trojan:Win32/Bearfoos 并直接删除。"
+    "到「Windows 安全中心 → 保护历史记录」找到 FlashMonitor.exe，选允许；"
+    "或给 %LOCALAPPDATA%\\FlashMonitor 加排除项后再装。"
+)
+
+
+def file_survived(path: Path, wait: float = 1.6) -> bool:
+    time.sleep(wait)
+    try:
+        return path.is_file() and path.stat().st_size >= 1_000_000
+    except OSError:
+        return False
+
+
 def download_latest_exe(url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     req = Request(url, headers={"User-Agent": APP_ID, "Accept": "application/octet-stream"})
@@ -690,51 +846,40 @@ def download_latest_exe(url: str, dest: Path) -> None:
     tmp = dest.with_name(dest.name + ".download")
     tmp.write_bytes(blob)
     tmp.replace(dest)
+    if not file_survived(dest):
+        raise RuntimeError("新版本下载后被删了。" + DEFENDER_HINT)
 
 
 def schedule_replace_and_restart(src: Path, dest: Path) -> None:
     pid = os.getpid()
-    helper = dest.with_name("_fm_update.ps1")
+    helper = dest.with_name("_fm_update.cmd")
     src_s = str(src)
     dest_s = str(dest)
     work = str(dest.parent)
     helper.write_text(
-        "\n".join(
+        "\r\n".join(
             [
-                "$ErrorActionPreference = 'Continue'",
-                f"$waitPid = {pid}",
-                f"$src = {json.dumps(src_s)}",
-                f"$dst = {json.dumps(dest_s)}",
-                f"$work = {json.dumps(work)}",
-                "for ($i = 0; $i -lt 40; $i++) {",
-                "  if (-not (Get-Process -Id $waitPid -ErrorAction SilentlyContinue)) { break }",
-                "  Start-Sleep -Milliseconds 400",
-                "}",
-                "Start-Sleep -Milliseconds 600",
-                "Move-Item -Force -LiteralPath $src -Destination $dst",
-                "Start-Process -FilePath $dst -WorkingDirectory $work -ArgumentList '--gui'",
-                "Remove-Item -Force -LiteralPath $MyInvocation.MyCommand.Path -ErrorAction SilentlyContinue",
+                "@echo off",
+                "setlocal",
+                f"set WAIT_PID={pid}",
+                f"set SRC={src_s}",
+                f"set DST={dest_s}",
+                f"set WORK={work}",
+                ":wait",
+                'tasklist /fi "PID eq %WAIT_PID%" | findstr /c:" %WAIT_PID% " >nul',
+                "if not errorlevel 1 (timeout /t 1 /nobreak >nul & goto wait)",
+                "timeout /t 1 /nobreak >nul",
+                'move /y "%SRC%" "%DST%"',
+                'if not exist "%DST%" exit /b 1',
+                'start "" /d "%WORK%" "%DST%" --gui',
+                'del "%~f0"',
                 "",
             ]
         ),
-        encoding="utf-8",
+        encoding="ascii",
     )
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | 0x00000008 | 0x00000200
-    subprocess.Popen(
-        [
-            "powershell",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-WindowStyle",
-            "Hidden",
-            "-File",
-            str(helper),
-        ],
-        cwd=work,
-        creationflags=flags,
-        close_fds=True,
-    )
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    subprocess.Popen(["cmd", "/c", str(helper)], cwd=work, creationflags=flags, close_fds=True)
 
 
 def shutdown_after_update() -> None:
@@ -2905,10 +3050,7 @@ def snapshot(proxy_ports: set[int]) -> dict[str, Any]:
         "alerts": build_alerts(rank["today"], leaks if tun_up else {"count": 0, "rows": []}, STORE.recent_new()),
         "sub": subinfo_public(),
         "live": STORE.live_view(),
-        "prefs": {
-            "ignored": as_name_list(SETTINGS.data.get("ignored")),
-            "pinned": pinned_list(),
-        },
+        "prefs": ui_prefs(),
     }
 
 
@@ -2996,11 +3138,12 @@ def build_alerts(today: dict[str, Any], leaks: dict[str, Any], new_apps: list[di
             names.append(name)
     if leak_n:
         alerts.append({"kind": "leak", "count": leak_n, "names": names})
-    for rec in new_apps[-6:]:
-        name = str(rec.get("process") or "")
-        if name.lower() in skip:
-            continue
-        alerts.append({"kind": "new", "process": name, "ts": int(rec.get("ts") or 0)})
+    if SETTINGS.data.get("show_new_banner", True):
+        for rec in new_apps[-6:]:
+            name = str(rec.get("process") or "")
+            if name.lower() in skip:
+                continue
+            alerts.append({"kind": "new", "process": name, "ts": int(rec.get("ts") or 0)})
     for item in quota_alerts(today):
         name = str(item.get("process") or "")
         if name and name.lower() in skip:
@@ -3057,10 +3200,7 @@ class Handler(BaseHTTPRequestHandler):
                 status["down_speed"] = rates.get("down") or 0
                 data["status"] = status
                 data["live"] = STORE.live_view()
-                data["prefs"] = {
-                    "ignored": as_name_list(SETTINGS.data.get("ignored")),
-                    "pinned": pinned_list(),
-                }
+                data["prefs"] = ui_prefs()
             self._send(200, json.dumps(data, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
             return
         if path == "/api/settings":
@@ -3096,6 +3236,9 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 info = {"ok": False, "current": APP_VERSION, "frozen": frozen(), "error": str(exc), "newer": False}
             self._send(200, json.dumps(info, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
+            return
+        if path == "/api/diag":
+            self._send(200, json.dumps(product_diag(), ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
             return
         if path == "/api/export.csv":
             self.send_response(200)
@@ -3135,6 +3278,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(500, b'{"ok":false}', "application/json; charset=utf-8")
                 return
             self._send(200, b'{"ok":true}', "application/json; charset=utf-8")
+            return
+        if path == "/api/open-install":
+            try:
+                dest = install_exe_path().parent
+                dest.mkdir(parents=True, exist_ok=True)
+                os.startfile(dest)  # noqa: S606
+            except OSError:
+                self._send(500, b'{"ok":false}', "application/json; charset=utf-8")
+                return
+            self._send(200, b'{"ok":true}', "application/json; charset=utf-8")
+            return
+        if path == "/api/test-clash":
+            self._send(200, json.dumps(test_clash_link(), ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
             return
         if path == "/api/close":
             body = self._read_json_body()
@@ -3330,8 +3486,8 @@ class WinTray:
 
         def popup_menu() -> None:
             menu = user32.CreatePopupMenu()
-            user32.AppendMenuW(menu, 0, self.ID_OPEN, "打开")
-            user32.AppendMenuW(menu, 0, self.ID_QUIT, "退出")
+            user32.AppendMenuW(menu, 0, self.ID_OPEN, "打开窗口")
+            user32.AppendMenuW(menu, 0, self.ID_QUIT, "退出 Flash Monitor")
             user32.SetForegroundWindow(hwnd)
             pt = POINT()
             user32.GetCursorPos(ctypes.byref(pt))
@@ -3492,19 +3648,21 @@ def tray_pulse_once(tray: WinTray) -> None:
             name = str(item.get("process") or "")
             if name and name not in seen_new:
                 seen_new.add(name)
-                try:
-                    tray.balloon("新程序走网", f"{process_label(name)} 开始走网了")
-                except Exception:
-                    pass
-                return
-        if kind == "leak" and not _TRAY_STATE["leak"]:
+                if SETTINGS.data.get("notify_new_app"):
+                    try:
+                        tray.balloon("新程序走网", f"{process_label(name)} 开始走网了")
+                    except Exception:
+                        pass
+                    return
+            continue
+        if kind == "leak" and SETTINGS.data.get("notify_leak", True) and not _TRAY_STATE["leak"]:
             _TRAY_STATE["leak"] = True
             try:
                 tray.balloon("漏网", f"{item.get('count') or 0} 条连接没进 TUN")
             except Exception:
                 pass
             return
-        if kind == "total":
+        if kind == "total" and SETTINGS.data.get("notify_quota", True):
             key = "total"
             quota: set[str] = _TRAY_STATE["quota"]
             if key not in quota:
@@ -3514,7 +3672,7 @@ def tray_pulse_once(tray: WinTray) -> None:
                 except Exception:
                     pass
                 return
-        if kind == "program":
+        if kind == "program" and SETTINGS.data.get("notify_quota", True):
             key = str(item.get("process") or "")
             quota = _TRAY_STATE["quota"]
             if key and key not in quota:
@@ -3781,7 +3939,7 @@ def run_gui(url: str, stop: threading.Event, httpd: ThreadingHTTPServer, minimiz
 
     def first_hide() -> None:
         tray = holder["tray"]
-        if tray is None:
+        if tray is None or not SETTINGS.data.get("notify_hide"):
             return
         try:
             tray.balloon(f"{APP_NAME} 还在采集", "点右下角托盘图标可打开窗口。")
@@ -3816,7 +3974,7 @@ def run_gui(url: str, stop: threading.Event, httpd: ThreadingHTTPServer, minimiz
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=f"{APP_NAME}：轻量监视 FlClash / mihomo 分流（TUN 或系统代理）")
+    parser = argparse.ArgumentParser(description=f"{APP_NAME}：本机 Clash / mihomo 流量监视")
     parser.add_argument("--port", type=int, default=LISTEN_PORT)
     parser.add_argument("--once", action="store_true", help="打印一次 JSON 后退出")
     parser.add_argument("--gui", action="store_true", help="打开桌面窗口（Windows 默认开启）")
@@ -3825,6 +3983,9 @@ def main() -> int:
     parser.add_argument("--browser", action="store_true", help="另外用系统浏览器打开")
     parser.add_argument("--minimized", action="store_true")
     args = parser.parse_args()
+    if not args.once and not claim_single_instance():
+        return 0
+    app_log(f"start v{APP_VERSION} frozen={frozen()} port={args.port}")
     if autostart_enabled():
         try:
             set_autostart(True)

@@ -6,166 +6,325 @@
 <title>Flash Monitor</title>
 <style>
   :root {
-    --bg: #f3f3f3;
+    --bg: #eef2f6;
     --panel: #fff;
-    --line: #ddd;
-    --ink: #1f1f1f;
-    --mute: #6b6b6b;
+    --line: #d8dee6;
+    --ink: #1b1f24;
+    --mute: #5b6570;
     --proxy: #0078d4;
     --direct: #107c10;
     --up: #c23900;
-    --bar: #d0d0d0;
-    --sel: #e8f1fa;
+    --bar: #e2e7ee;
+    --sel: #dff0ff;
+    --chip: #f4f7fa;
+    --leak: #c42b1c;
+    --warn: #fff8e1;
+    --warn-line: #e0c36e;
+    --shadow: 0 1px 2px rgba(27, 31, 36, 0.05);
+    --mono: "Cascadia Mono", "Segoe UI Variable", Consolas, monospace;
   }
   * { box-sizing: border-box; }
+  html { color-scheme: light; }
   html, body { margin: 0; background: var(--bg); color: var(--ink); }
-  body { font: 13px/1.45 "Segoe UI", "PingFang SC", sans-serif; }
+  body {
+    font: 13px/1.45 "Segoe UI Variable", "Segoe UI", "PingFang SC", sans-serif;
+    letter-spacing: 0.01em;
+  }
   button, input, select { font: inherit; color: inherit; }
-  .wrap { max-width: 1100px; margin: 0 auto; padding: 16px 18px 28px; }
+  button, input, select { border-radius: 7px; }
+  button { cursor: pointer; }
+  button:focus-visible, input:focus-visible, select:focus-visible {
+    outline: 2px solid var(--proxy);
+    outline-offset: 2px;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 14px 18px 36px; }
   header {
-    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-    margin-bottom: 10px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 8px;
   }
-  h1 { margin: 0; font-size: 16px; font-weight: 600; }
-  .nav { display: flex; gap: 2px; }
-  .nav button, .period button, .tools button, .tools select {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    padding: 4px 10px;
-    cursor: pointer;
+  .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .brand .mark {
+    width: 22px; height: 22px; border-radius: 6px; flex: none;
+    background: linear-gradient(135deg, #0078d4 0%, #5bb0ff 100%);
+    box-shadow: inset 0 -6px 0 rgba(255,255,255,0.18);
   }
-  .nav button.on, .period button.on { background: var(--sel); border-color: #99c9ef; }
+  .brand-text { display: flex; flex-direction: column; line-height: 1.15; }
+  h1 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -0.02em; }
+  .brand .ver { color: var(--mute); font-size: 11px; font-family: var(--mono); }
+  .nav {
+    display: flex; gap: 2px; padding: 3px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; box-shadow: var(--shadow);
+  }
+  .nav button {
+    background: transparent; border: 0;
+    padding: 6px 12px; color: var(--mute);
+  }
+  .nav button.on {
+    background: var(--sel); color: var(--proxy); font-weight: 600;
+  }
+  .period {
+    display: flex; gap: 2px; flex-wrap: wrap; padding: 2px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+  }
+  .period button {
+    background: transparent; border: 0;
+    padding: 4px 9px; color: var(--mute);
+  }
+  .period button.on {
+    background: var(--sel); color: var(--proxy); font-weight: 600;
+  }
+  .tools > button, .tools > select, header .upd, .act button,
+  .airport button, .quota button, .settings button, .row-act button {
+    background: var(--panel); border: 1px solid var(--line);
+    padding: 5px 10px;
+  }
   .search { flex: 1; min-width: 160px; }
   .search input {
-    width: 100%; border: 1px solid var(--line); padding: 5px 8px; background: #fff;
+    width: 100%; height: 34px;
+    border: 1px solid var(--line); padding: 0 12px;
+    background: var(--panel); box-shadow: var(--shadow);
   }
-  .rates { color: var(--mute); font-variant-numeric: tabular-nums; }
-  header .upd {
+  .rates {
+    font-family: var(--mono);
+    font-size: 18px; font-weight: 600; line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.03em;
+  }
+  .rates .dn { color: var(--ink); }
+  header .upd { height: 34px; white-space: nowrap; }
+  header .upd.fresh {
+    background: var(--proxy); color: #fff; border-color: var(--proxy);
+  }
+  .meta {
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    color: var(--mute); font-size: 12px; margin: 0 0 10px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px;
     background: var(--panel); border: 1px solid var(--line);
-    padding: 4px 10px; cursor: pointer; white-space: nowrap;
+    border-radius: 99px; padding: 2px 8px;
+    box-shadow: var(--shadow);
   }
-  header .upd.fresh { background: var(--sel); border-color: #99c9ef; }
-  .meta { color: var(--mute); font-size: 12px; margin: 0 0 10px; }
-  .period { display: flex; gap: 2px; flex-wrap: wrap; }
-  .tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
-  .chart-box { background: var(--panel); border: 1px solid var(--line); margin-bottom: 10px; }
-  .chart-head { display: flex; justify-content: space-between; padding: 8px 10px 0; color: var(--mute); font-size: 12px; }
-  .legend span { margin-left: 12px; }
+  .chip.ok { color: var(--direct); }
+  .chip.warn { color: #8a6d00; background: var(--warn); border-color: var(--warn-line); }
+  .chip.bad { color: var(--leak); }
+  .setup {
+    padding: 16px 18px; margin: 0 0 12px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; box-shadow: var(--shadow);
+  }
+  .setup h2 { margin: 0 0 8px; font-size: 15px; }
+  .setup ol { margin: 8px 0 12px; padding-left: 20px; color: var(--ink); }
+  .setup .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .tools {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    margin: 10px 0;
+  }
+  .tools > select { height: 30px; background: var(--panel); }
+  .check {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--mute); user-select: none;
+  }
+  .chart-box, .live, .airport, .quota, .settings, #main > table, .lanes > div {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+  }
+  .chart-box { margin-bottom: 12px; overflow: hidden; }
+  .chart-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 14px 0; color: var(--mute); font-size: 12px;
+  }
+  .legend { display: flex; gap: 14px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend span::before {
+    content: ""; width: 8px; height: 8px; border-radius: 2px; background: currentColor;
+  }
   .chart-wrap { position: relative; }
-  #chart { display: block; width: 100%; height: 120px; }
+  #chart { display: block; width: 100%; height: 128px; }
   #chart-tip {
     position: absolute; top: 8px; left: 8px; background: #fff;
-    border: 1px solid var(--line); padding: 4px 6px; font-size: 11px;
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 5px 8px; font-size: 11px; font-family: var(--mono);
     font-variant-numeric: tabular-nums; pointer-events: none;
+    box-shadow: var(--shadow);
   }
   table { width: 100%; border-collapse: collapse; background: var(--panel); }
-  th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--line); }
-  th { color: var(--mute); font-weight: 600; font-size: 12px; }
-  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .bar { display: block; height: 4px; background: var(--bar); margin-top: 4px; }
+  #main > table { overflow: hidden; }
+  th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--line); }
+  th {
+    color: var(--mute); font-weight: 600; font-size: 11px;
+    letter-spacing: 0.04em; background: #f7f9fb;
+  }
+  tr:last-child td { border-bottom: 0; }
+  tbody tr:hover td { background: #f5f9fd; }
+  .num {
+    text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap;
+    font-family: var(--mono); font-size: 12px;
+  }
+  .bar { display: block; height: 3px; background: var(--bar); margin-top: 6px; border-radius: 99px; overflow: hidden; }
   .bar i { display: block; height: 100%; background: var(--proxy); }
   .bar i.d { background: var(--direct); }
-  .rk { color: var(--mute); width: 2em; }
+  .rk { color: var(--mute); width: 2.2em; font-family: var(--mono); font-size: 12px; }
   .foldable { cursor: pointer; }
-  .site td:nth-child(2) { padding-left: 22px; color: var(--mute); }
-  .empty { color: var(--mute); padding: 24px; text-align: center; }
+  .site td:nth-child(2) { padding-left: 36px; color: var(--mute); }
+  .empty { color: var(--mute); padding: 36px 16px; text-align: center; }
   .down { color: var(--direct); }
   .proxy { color: var(--proxy); }
   .up { color: var(--up); }
-  .sum { color: var(--mute); font-size: 12px; margin: 0 0 8px; }
-  .settings { background: var(--panel); border: 1px solid var(--line); padding: 16px 18px; max-width: 560px; }
-  .settings h2 { margin: 18px 0 8px; font-size: 13px; font-weight: 600; }
+  .sum { color: var(--mute); font-size: 12px; margin: 0 0 8px; padding: 0 2px; }
+  .lanes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .lanes > div { padding: 10px 10px 4px; overflow: hidden; }
+  .lanes .sum { padding: 2px 6px 8px; }
+  .lanes table { background: transparent; }
+  .settings {
+    display: grid; grid-template-columns: 168px 1fr;
+    padding: 0; max-width: 860px; overflow: hidden;
+  }
+  .set-nav {
+    background: #f7f9fb; border-right: 1px solid var(--line);
+    padding: 10px 8px;
+  }
+  .set-nav button {
+    display: block; width: 100%; text-align: left;
+    background: transparent; border: 0;
+    padding: 8px 10px; color: var(--mute);
+  }
+  .set-nav button.on { background: var(--sel); color: var(--proxy); font-weight: 600; }
+  .set-body { padding: 18px 20px 22px; min-width: 0; }
+  .set-body .acts, .setup .acts { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+  .settings h2 { margin: 20px 0 8px; font-size: 13px; font-weight: 600; }
   .settings h2:first-child { margin-top: 0; }
+  .about-hero { margin: 0 0 14px; }
+  .about-hero h3 { margin: 0 0 4px; font-size: 18px; }
+  .kbd { font-family: var(--mono); font-size: 11px; background: var(--chip); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
   .settings .row { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0; cursor: pointer; }
   .settings .row input { margin-top: 3px; }
   .settings .hint { color: var(--mute); font-size: 12px; margin: 2px 0 0; }
   .settings .field { margin: 12px 0; }
-  .settings .field label { display: block; margin-bottom: 4px; }
+  .settings .field label { display: block; margin-bottom: 5px; }
   .settings input[type=text], .settings input[type=number], .settings input[type=password] {
-    width: 100%; border: 1px solid var(--line); padding: 5px 8px; background: #fff;
+    width: 100%; border: 1px solid var(--line); padding: 7px 10px; background: #fff;
   }
-  .settings .path { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; word-break: break-all; color: var(--mute); }
+  .settings .path { font-family: var(--mono); font-size: 12px; word-break: break-all; color: var(--mute); }
   .settings .ok { color: var(--direct); font-size: 12px; margin-left: 8px; }
-  .settings .err { color: #c42b1c; font-size: 12px; }
-  .quota { background: #fff4ce; border: 1px solid #e0c36e; padding: 8px 10px; margin: 0 0 10px; }
+  .settings .err { color: var(--leak); font-size: 12px; }
+  .quota { background: var(--warn); border-color: var(--warn-line); padding: 10px 12px; margin: 0 0 10px; }
   .quota p { margin: 0 0 4px; }
   .quota p:last-child { margin: 0; }
-  .quota .leak-line { color: #c42b1c; cursor: pointer; }
-  .quota .new-line button { margin-left: 8px; padding: 1px 8px; }
-  .airport { background: var(--panel); border: 1px solid var(--line); padding: 8px 10px; margin: 0 0 10px; }
+  .quota .leak-line { color: var(--leak); cursor: pointer; }
+  .quota .new-line button { margin-left: 8px; padding: 2px 8px; }
+  .airport { padding: 10px 14px; margin: 0 0 10px; }
   .airport p { margin: 0 0 4px; }
   .airport p:last-child { margin: 0; }
   .airport .hint { color: var(--mute); font-size: 12px; }
-  .airport .bar { margin-top: 6px; }
-  .airport button { margin-left: 8px; padding: 1px 8px; cursor: pointer; background: var(--panel); border: 1px solid var(--line); }
-  .leak-tag { color: #c42b1c; font-weight: 600; }
-  .act { text-align: right; white-space: nowrap; width: 3.5em; }
-  .act button { padding: 1px 8px; cursor: pointer; background: var(--panel); border: 1px solid var(--line); }
-  .live {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    padding: 10px 12px 8px;
-    margin-bottom: 10px;
+  .airport .bar { margin-top: 8px; }
+  .airport button { margin-left: 8px; padding: 2px 8px; }
+  .airport .head {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
   }
+  .airport .head p { margin: 0; flex: 1; }
+  .airport .head .acts { display: flex; gap: 6px; flex: none; }
+  .airport .head .acts button { margin-left: 0; }
+  .toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
+    background: #1b1f24; color: #fff; padding: 8px 14px;
+    border-radius: 8px; font-size: 13px; z-index: 40;
+    box-shadow: 0 8px 24px rgba(27, 31, 36, 0.22);
+    max-width: min(420px, calc(100vw - 32px));
+  }
+  .leak-tag { color: var(--leak); font-weight: 600; }
+  .pill {
+    display: inline-flex; align-items: center;
+    padding: 1px 7px; border-radius: 99px; font-size: 11px; font-weight: 600;
+  }
+  .pill.proxy { background: #e8f4fc; color: var(--proxy); }
+  .pill.direct { background: #eaf6ea; color: var(--direct); }
+  .pill.leak { background: #fde7e9; color: var(--leak); }
+  .act { text-align: right; white-space: nowrap; width: 3.5em; }
+  .live { padding: 14px 16px 12px; margin-bottom: 10px; }
   .pipe-track {
-    display: flex;
-    height: 8px;
-    background: var(--bar);
-    overflow: hidden;
+    display: flex; height: 12px; background: var(--bar);
+    overflow: hidden; border-radius: 99px;
+    box-shadow: inset 0 1px 2px rgba(27, 31, 36, 0.12);
   }
   .pipe-track i { display: block; height: 100%; }
   .pipe-track .proxy { background: var(--proxy); }
   .pipe-track .direct { background: var(--direct); }
+  .pipe-track i { transition: width 0.45s cubic-bezier(0.2, 0.8, 0.2, 1); }
   .pipe-meta {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    margin-top: 8px;
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 12px; margin-top: 10px; font-variant-numeric: tabular-nums;
+  }
+  .pipe-meta .split { color: var(--mute); font-size: 12px; }
+  .eaters {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    margin-top: 10px; min-height: 28px;
+  }
+  .eaters .who {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--chip); border: 1px solid var(--line);
+    border-radius: 99px; padding: 4px 10px 4px 5px;
+  }
+  .app { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+  .eaters .who img, .app img {
+    width: 18px; height: 18px; flex: none; border-radius: 4px;
+  }
+  .eaters .who .spd, .num {
     font-variant-numeric: tabular-nums;
   }
-  .pipe-meta .split { color: var(--mute); }
-  .eaters {
-    display: flex;
-    gap: 14px;
-    flex-wrap: wrap;
-    margin-top: 8px;
-    min-height: 22px;
+  .eaters .who .spd { font-family: var(--mono); font-size: 12px; }
+  .eaters .idle { color: var(--mute); padding: 4px 2px; }
+  .proc-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
   }
-  .eaters .who, .app {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+  .proc .fold {
+    color: var(--mute); margin-left: 4px; font-family: var(--mono);
   }
-  .eaters .who img, .app img {
-    width: 16px; height: 16px; flex: none;
-  }
-  .eaters .who .spd { color: var(--mute); font-variant-numeric: tabular-nums; }
-  .row-act { margin-left: 8px; opacity: 0.45; }
-  tr:hover .row-act { opacity: 1; }
-  .row-act button {
-    padding: 0 6px; font-size: 11px; cursor: pointer;
-    background: var(--panel); border: 1px solid var(--line);
-  }
-  .pinned-mark { color: var(--proxy); margin-right: 4px; }
+  .proc .meta { margin: 3px 0 0; font-size: 11px; }
+  .row-act { display: inline-flex; gap: 4px; flex: none; opacity: 0.4; }
+  tr:hover .row-act, .proc-head:hover .row-act { opacity: 1; }
+  .row-act button { padding: 1px 7px; font-size: 11px; }
+  .pinned-mark { color: var(--proxy); font-size: 11px; }
   .settings .ign-list { list-style: none; padding: 0; margin: 8px 0 0; }
   .settings .ign-list li {
     display: flex; align-items: center; justify-content: space-between;
-    gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line);
+    gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line);
   }
-  .settings .ign-list button {
-    padding: 1px 8px; cursor: pointer; background: var(--panel); border: 1px solid var(--line);
+  .settings .ign-list li:last-child { border-bottom: 0; }
+  .settings .ign-list button { padding: 3px 8px; }
+  @media (max-width: 800px) {
+    .hide-sm { display: none; }
+    .lanes { grid-template-columns: 1fr; }
+    .rates { font-size: 16px; }
+    .settings { grid-template-columns: 1fr; }
+    .set-nav { display: flex; flex-wrap: wrap; gap: 4px; border-right: 0; border-bottom: 1px solid var(--line); }
+    .set-nav button { width: auto; }
+    .brand .ver { display: none; }
   }
-  @media (max-width: 800px) { .hide-sm { display: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .pipe-track i { transition: none; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
+    <div class="brand">
+      <span class="mark" aria-hidden="true"></span>
+      <div class="brand-text">
+        <h1>Flash Monitor</h1>
+        <span class="ver" id="brand-ver"></span>
+      </div>
+    </div>
     <nav class="nav" id="filters"></nav>
-    <label class="search"><input id="q" type="search" placeholder="搜索" autocomplete="off"></label>
+    <label class="search"><input id="q" type="search" placeholder="搜索程序或网站" autocomplete="off"></label>
     <button type="button" class="upd" id="btn-update">更新</button>
   </header>
-  <p class="meta" id="status">采集中…</p>
+  <div class="meta" id="status"><span class="chip">正在启动…</span></div>
+  <div id="setup" class="setup" hidden></div>
   <section class="live" id="live">
     <div class="pipe-track" id="pipe"><i class="proxy" id="pipe-proxy" style="width:0"></i><i class="direct" id="pipe-direct" style="width:0"></i></div>
     <div class="pipe-meta">
@@ -176,6 +335,7 @@
   </section>
   <div id="airport" class="airport" hidden></div>
   <div id="quota" class="quota" hidden></div>
+  <div id="toast" class="toast" hidden></div>
   <div class="tools">
     <div class="period" id="rank-modes"></div>
     <div class="period" id="periods"></div>
@@ -186,7 +346,7 @@
     </select>
     <button type="button" id="btn-export">导出 CSV</button>
     <button type="button" id="btn-reset">清零累计</button>
-    <label class="row-act" style="opacity:1;margin-left:0">
+    <label class="check">
       <input type="checkbox" id="show-ignored"> 显示已忽略
     </label>
   </div>
@@ -219,11 +379,13 @@ const NAMES = {
 let filter = "rank";
 let period = "today";
 let rankMode = "proxy";
+let setPane = "general";
 let leakOnly = false;
 let last = null;
 let settingsCache = null;
 let settingsNote = "";
 let updateInfo = null;
+let clashNote = "";
 const opened = new Set();
 let hoverIdx = -1;
 const box = document.getElementById("filters");
@@ -232,11 +394,7 @@ FILTERS.forEach(([id, label]) => {
   b.textContent = label;
   if (id === filter) b.className = "on";
   b.onclick = async () => {
-    filter = id;
-    if (id !== "conns") leakOnly = false;
-    [...box.children].forEach(x => x.classList.toggle("on", x.textContent === label));
-    if (id === "settings") await loadSettings();
-    render();
+    await gotoFilter(id);
   };
   box.appendChild(b);
 });
@@ -261,6 +419,7 @@ PERIODS.forEach(([id, label]) => {
   b.onclick = () => {
     period = id;
     [...pbox.children].forEach(x => x.classList.toggle("on", x.textContent === label));
+    saveSetting("last_period", period, true);
     render();
   };
   pbox.appendChild(b);
@@ -289,7 +448,22 @@ function hit(...parts) {
   return parts.some(p => String(p || "").toLowerCase().includes(q));
 }
 function labelOf(p, title) { return title || NAMES[p] || p; }
-function prefs() { return (last && last.prefs) || { ignored: [], pinned: [] }; }
+function prefs() { return (last && last.prefs) || { ignored: [], pinned: [], show_airport: true, show_new_banner: true }; }
+function airportOn() {
+  if (settingsCache && Object.prototype.hasOwnProperty.call(settingsCache, "show_airport")) {
+    return settingsCache.show_airport !== false;
+  }
+  return prefs().show_airport !== false;
+}
+let toastTimer = 0;
+function flashToast(msg) {
+  const el = document.getElementById("toast");
+  if (!el) return;
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 3200);
+}
 function isIgnored(p) {
   const n = String(p || "").toLowerCase();
   return (prefs().ignored || []).some(x => String(x).toLowerCase() === n);
@@ -301,12 +475,13 @@ function isPinned(p) {
 function iconImg(p) {
   return `<img alt="" src="/api/icon?p=${encodeURIComponent(p)}" onerror="this.remove()">`;
 }
-function procCell(r, extra) {
+function procCell(r, extra, fold) {
   const name = r.process;
   const pin = isPinned(name);
   const ign = isIgnored(name);
   const extraHtml = extra || "";
-  return `<span class="app">${pin ? `<span class="pinned-mark">钉</span>` : ""}${iconImg(name)}<span>${escapeHtml(labelOf(name, r.title))}</span></span>${extraHtml}<span class="row-act"><button type="button" data-pin="${escapeHtml(name)}" data-on="${pin ? "0" : "1"}">${pin ? "取消钉" : "钉住"}</button> <button type="button" data-ignore="${escapeHtml(name)}" data-on="${ign ? "0" : "1"}">${ign ? "显示" : "忽略"}</button></span>`;
+  const foldHtml = fold ? `<span class="fold">${escapeHtml(fold)}</span>` : "";
+  return `<div class="proc"><div class="proc-head"><span class="app">${pin ? `<span class="pinned-mark">钉</span>` : ""}${iconImg(name)}<span class="nm">${escapeHtml(labelOf(name, r.title))}</span>${foldHtml}</span><span class="row-act"><button type="button" data-pin="${escapeHtml(name)}" data-on="${pin ? "0" : "1"}">${pin ? "取消钉" : "钉住"}</button> <button type="button" data-ignore="${escapeHtml(name)}" data-on="${ign ? "0" : "1"}">${ign ? "显示" : "忽略"}</button></span></div>${extraHtml}</div>`;
 }
 function arrangeRows(rows) {
   const show = document.getElementById("show-ignored") && document.getElementById("show-ignored").checked;
@@ -357,7 +532,7 @@ function drawChart() {
   const wrap = canvas.parentElement;
   const dpr = window.devicePixelRatio || 1;
   const w = Math.max(wrap.clientWidth, 120);
-  const h = 120;
+  const h = 128;
   canvas.width = Math.floor(w * dpr);
   canvas.height = Math.floor(h * dpr);
   canvas.style.width = w + "px";
@@ -520,7 +695,7 @@ function renderRank() {
         }).join("")}</tbody>
       </table>`;
   }
-  if (!rows.length) return `${sum}<div class="empty">${proxyMode ? "这段时间还没有走代理的流量" : "没有数据"}</div>`;
+  if (!rows.length) return `${sum}<div class="empty">${proxyMode ? "这段时间还没有走代理的流量" : "还没有排行数据。接上 Clash 并产生流量后会出现在这里。"}</div>`;
   if (proxyMode) {
     const max = Math.max(1, ...rows.map(r => Number(r.proxy_total || (r.proxy_up + r.proxy_down))));
     return `${sum}
@@ -533,7 +708,7 @@ function renderRank() {
           const fold = sites.length ? "foldable" : "";
           const main = `<tr class="${fold}" data-key="${escapeHtml(key)}">
             <td class="rk">${i + 1}</td>
-            <td>${procCell(r, (sites.length ? (open ? " −" : " +") : "") + whyOf(r))}<span class="bar"><i style="width:${pct}%"></i></span></td>
+            <td>${procCell(r, whyOf(r), sites.length ? (open ? "−" : "+") : "")}<span class="bar"><i style="width:${pct}%"></i></span></td>
             <td class="num proxy">${fmtBytes(r.proxy_down)}</td>
             <td class="num up">${fmtBytes(r.proxy_up)}</td>
             <td class="num">${fmtBytes(tot)}</td>
@@ -554,7 +729,7 @@ function renderRank() {
         const fold = sites.length ? "foldable" : "";
         const main = `<tr class="${fold}" data-key="${escapeHtml(key)}">
           <td class="rk">${r.rank}</td>
-          <td>${procCell(r, (sites.length ? (open ? " −" : " +") : "") + whyOf(r))}<span class="bar"><i style="width:${pct}%"></i></span></td>
+          <td>${procCell(r, whyOf(r), sites.length ? (open ? "−" : "+") : "")}<span class="bar"><i style="width:${pct}%"></i></span></td>
           <td class="num proxy">${fmtBytes(r.proxy_down)}</td>
           <td class="num down">${fmtBytes(r.direct_down)}</td>
           <td class="num up">${fmtBytes(r.upload)}</td>
@@ -578,7 +753,7 @@ function laneTable(kind, lane) {
     const open = opened.has(key);
     const extra = [sites.length ? sites.length + " 站" : "", p.live ? p.live + " 在连" : ""].filter(Boolean).join(" · ");
     const main = `<tr class="${sites.length ? "foldable" : ""}" data-key="${escapeHtml(key)}">
-      <td>${procCell(p, (sites.length ? (open ? " −" : " +") : "") + whyOf(p))}${extra ? `<div class="meta">${escapeHtml(extra)}</div>` : ""}</td>
+      <td>${procCell(p, whyOf(p) + (extra ? `<div class="meta">${escapeHtml(extra)}</div>` : ""), sites.length ? (open ? "−" : "+") : "")}</td>
       <td class="num up">${fmtBytes(p.upload)}</td>
       <td class="num down">${fmtBytes(p.download)}</td>
     </tr>`;
@@ -594,7 +769,7 @@ function renderLanes() {
   const lanes = last.lanes || {};
   const px = lanes.proxy || { rows: [] };
   const dx = lanes.direct || { rows: [] };
-  return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+  return `<div class="lanes">
     <div>
       <p class="sum">走代理 ↓ ${fmtBytes(px.download)} · ↑ ${fmtBytes(px.upload)}</p>
       <table><thead><tr><th>程序</th><th class="num">上传</th><th class="num">下载</th></tr></thead>
@@ -617,10 +792,10 @@ function renderConns(rows) {
     <thead><tr><th>出站</th><th>进程</th><th>远端</th><th class="num">上传</th><th class="num">下载</th><th class="hide-sm">规则</th>${live ? "<th class='act'></th>" : ""}</tr></thead>
     <tbody>${rows.map(f => {
       const ids = (f.ids || (f.id ? [f.id] : [])).filter(Boolean);
-      let tag = `<span class="down">直连</span>`;
-      if (f.path === "leak") tag = `<span class="leak-tag">漏网</span>`;
-      else if (f.outbound === "proxy") tag = `<span class="proxy">代理</span> ${escapeHtml(f.node || "")}`;
-      else if (f.inbound === "sysproxy" || f.path === "sysproxy") tag = `<span class="proxy">系统代理</span>`;
+      let tag = `<span class="pill direct">直连</span>`;
+      if (f.path === "leak") tag = `<span class="pill leak">漏网</span>`;
+      else if (f.outbound === "proxy") tag = `<span class="pill proxy">代理</span> ${escapeHtml(f.node || "")}`;
+      else if (f.inbound === "sysproxy" || f.path === "sysproxy") tag = `<span class="pill proxy">系统代理</span>`;
       const kill = live && ids.length ? `<td class="act"><button type="button" data-close="${escapeHtml(ids.join(","))}">断</button></td>` : (live ? "<td></td>" : "");
       return `<tr>
       <td>${tag}</td>
@@ -638,7 +813,7 @@ async function loadSettings() {
   const r = await fetch("/api/settings");
   settingsCache = await r.json();
 }
-async function saveSetting(key, value) {
+async function saveSetting(key, value, silent) {
   settingsNote = "";
   const r = await fetch("/api/settings", {
     method: "POST",
@@ -646,11 +821,58 @@ async function saveSetting(key, value) {
     body: JSON.stringify({ [key]: value })
   });
   settingsCache = await r.json();
+  if (silent) return settingsCache;
   settingsNote = settingsCache.error ? "" : "已保存";
   render();
+  return settingsCache;
 }
 async function openDataDir() {
   await fetch("/api/open-data", { method: "POST" });
+}
+async function openInstallDir() {
+  await fetch("/api/open-install", { method: "POST" });
+}
+async function testClash() {
+  clashNote = "正在检测…";
+  render();
+  try {
+    const d = await (await fetch("/api/test-clash", { method: "POST" })).json();
+    clashNote = d.ok
+      ? `已接通 ${d.base || ""} · ${d.connections || 0} 条连接 · ${d.ms} ms`
+      : (d.error || "连不上");
+  } catch (e) {
+    clashNote = e.message || "检测失败";
+  }
+  render();
+  tick();
+}
+async function copyDiag() {
+  try {
+    const d = await (await fetch("/api/diag")).json();
+    const text = Object.entries(d).map(([k, v]) => k + ": " + v).join("\n");
+    await navigator.clipboard.writeText(text);
+    flashToast("诊断信息已复制");
+  } catch {
+    flashToast("复制失败");
+  }
+}
+async function gotoFilter(id, pane) {
+  filter = id;
+  if (id !== "conns") leakOnly = false;
+  if (pane) setPane = pane;
+  [...box.children].forEach(x => x.classList.toggle("on", x.textContent === (FILTERS.find(f => f[0] === id) || [])[1]));
+  if (id === "settings") await loadSettings();
+  if (id !== "settings") saveSetting("last_filter", id, true);
+  const hash = id === "settings" ? (setPane === "general" ? "settings" : "settings/" + setPane) : id;
+  if (location.hash.replace(/^#/, "") !== hash) history.replaceState(null, "", "#" + hash);
+  render();
+}
+function applyHash() {
+  const raw = (location.hash || "").replace(/^#/, "");
+  if (!raw) return;
+  const [head, pane] = raw.split("/");
+  if (FILTERS.some(f => f[0] === head)) filter = head;
+  if (head === "settings" && pane) setPane = pane;
 }
 async function peekUpdate() {
   try {
@@ -713,61 +935,125 @@ function renderSettings() {
   const note = s.error
     ? `<span class="err">${escapeHtml(s.error)}</span>`
     : (settingsNote ? `<span class="ok">${settingsNote}</span>` : "");
-  return `<div class="settings" id="set-form">
-    <h2>启动</h2>
-    <label class="row">
-      <input type="checkbox" ${s.autostart ? "checked" : ""} onchange="saveSetting('autostart', this.checked)">
-      <div>开机自启动${note}<div class="hint">写入当前用户启动项。开机后最小化、不弹浏览器。请用要长期用的那个程序勾选（打包版请打开 FlashMonitor.exe 后再勾）。</div></div>
-    </label>
-    <label class="row">
-      <input type="checkbox" ${s.start_minimized ? "checked" : ""} onchange="saveSetting('start_minimized', this.checked)">
-      <div>启动后藏到托盘<div class="hint">开机自启也会这样。点托盘图标再打开窗口。</div></div>
-    </label>
-    <label class="row">
-      <input type="checkbox" ${s.close_to_tray !== false ? "checked" : ""} onchange="saveSetting('close_to_tray', this.checked)">
-      <div>关闭窗口藏到托盘<div class="hint">采集继续。要从托盘彻底退出，选「退出」。</div></div>
-    </label>
-    <h2>忽略的程序</h2>
-    <p class="hint">忽略后不出现在排行、分流和托盘提示。系统噪音默认已忽略。</p>
-    ${(s.ignored || []).length ? `<ul class="ign-list">${(s.ignored || []).map(n => `<li><span class="app">${iconImg(n)}<span>${escapeHtml(labelOf(n))}</span></span><button type="button" data-ignore="${escapeHtml(n)}" data-on="0">取消忽略</button></li>`).join("")}</ul>` : `<p class="hint">还没有忽略名单。</p>`}
-    <h2>采集</h2>
-    <div class="field">
-      <label>Clash 接口</label>
-      <input type="text" value="${escapeHtml(s.clash_api || "")}" onchange="saveSetting('clash_api', this.value)">
-      <div class="hint">默认 http://127.0.0.1:9090 。FlClash 里打开外部控制器后才能按程序/网站分流。TUN 不是必须的：只开系统代理同样能看哪个程序走节点、哪个直连。顶部「机场」数字来自当前订阅的 Subscription-Userinfo，和机场面板同一套账；本机排行只统计开机后采到的连接。</div>
-    </div>
-    <div class="field">
-      <label>机场订阅（可选）</label>
-      <input type="password" value="${escapeHtml(s.sub_url || "")}" autocomplete="off" onchange="saveSetting('sub_url', this.value)">
-      <div class="hint">填机场给 Clash 的原始订阅地址，顶部会显示和面板一样的 已用/总量、上传、下载。转换器链接通常没有这组数字。不填则尝试读 FlClash 当前配置。</div>
-    </div>
-    <div class="field">
-      <label>排行数据保留天数</label>
-      <input type="number" min="7" max="365" value="${Number(s.retention_days || 40)}" onchange="saveSetting('retention_days', Number(this.value))">
-      <div class="hint">只影响 15 分钟时段排行，连接记录文件不会按这个天数自动删。</div>
-    </div>
-    <h2>日流量提醒</h2>
-    <div class="field">
-      <label>今天合计超过（MB，0 表示关闭）</label>
-      <input type="number" min="0" step="1" value="${Number(s.quota_total_mb || 0)}" onchange="saveSetting('quota_total_mb', Number(this.value))">
-    </div>
-    <div class="field">
-      <label>单个程序今天超过（MB，0 表示关闭）</label>
-      <input type="number" min="0" step="1" value="${Number(s.quota_program_mb || 0)}" onchange="saveSetting('quota_program_mb', Number(this.value))">
-      <div class="hint">按「今天」排行的上传+下载计算，页面顶部会黄条提示。</div>
-    </div>
-    <h2>数据</h2>
-    <p class="path">${escapeHtml(s.data_dir || "")}</p>
-    <button type="button" onclick="openDataDir()">打开数据文件夹</button>
-    <h2>版本</h2>
-    <p>当前 v${escapeHtml(s.version || "")}${s.frozen ? " · 打包版" : " · 源码运行"}</p>
-    <p id="upd-note" class="hint">${updateInfo && updateInfo.latest ? (
-      updateInfo.newer
-        ? `GitHub 最新 v${escapeHtml(updateInfo.latest)}，点右上角「更新」下载并重启。`
-        : `已是最新（GitHub v${escapeHtml(updateInfo.latest || s.version || "")}）。`
-    ) : "点右上角「更新」检查 GitHub 发行版。"}</p>
-    <button type="button" onclick="doUpdate()">立即更新</button>
-  </div>`;
+  const panes = [["general","常规"],["notify","通知"],["connect","连接"],["data","数据"],["about","关于"]];
+  const nav = panes.map(([id, lab]) => `<button type="button" class="${setPane === id ? "on" : ""}" data-pane="${id}">${lab}</button>`).join("");
+  const ign = (s.ignored || []).length
+    ? `<ul class="ign-list">${(s.ignored || []).map(n => `<li><span class="app">${iconImg(n)}<span>${escapeHtml(labelOf(n))}</span></span><button type="button" data-ignore="${escapeHtml(n)}" data-on="0">取消忽略</button></li>`).join("")}</ul>`
+    : `<p class="hint">还没有忽略名单。在排行里点「忽略」。系统噪音默认已忽略。</p>`;
+  let body = "";
+  if (setPane === "notify") {
+    body = `
+      <h2>通知</h2>
+      <p class="hint">页面黄条和右下角托盘气泡分开控制。</p>
+      <label class="row">
+        <input type="checkbox" ${s.show_new_banner !== false ? "checked" : ""} onchange="saveSetting('show_new_banner', this.checked)">
+        <div>页面提示新程序开始走网</div>
+      </label>
+      <label class="row">
+        <input type="checkbox" ${s.notify_new_app ? "checked" : ""} onchange="saveSetting('notify_new_app', this.checked)">
+        <div>右下角弹出「开始走网了」</div>
+      </label>
+      <label class="row">
+        <input type="checkbox" ${s.notify_leak !== false ? "checked" : ""} onchange="saveSetting('notify_leak', this.checked)">
+        <div>漏网时弹出托盘气泡</div>
+      </label>
+      <label class="row">
+        <input type="checkbox" ${s.notify_quota !== false ? "checked" : ""} onchange="saveSetting('notify_quota', this.checked)">
+        <div>日流量超限时弹出托盘气泡</div>
+      </label>
+      <label class="row">
+        <input type="checkbox" ${s.notify_hide ? "checked" : ""} onchange="saveSetting('notify_hide', this.checked)">
+        <div>关窗口藏到托盘时提醒还在采集</div>
+      </label>
+      <h2>日流量阈值</h2>
+      <div class="field">
+        <label>今天合计超过（MB，0 表示关闭）</label>
+        <input type="number" min="0" step="1" value="${Number(s.quota_total_mb || 0)}" onchange="saveSetting('quota_total_mb', Number(this.value))">
+      </div>
+      <div class="field">
+        <label>单个程序今天超过（MB，0 表示关闭）</label>
+        <input type="number" min="0" step="1" value="${Number(s.quota_program_mb || 0)}" onchange="saveSetting('quota_program_mb', Number(this.value))">
+      </div>`;
+  } else if (setPane === "connect") {
+    body = `
+      <h2>Clash</h2>
+      <div class="field">
+        <label>外部控制器</label>
+        <input type="text" value="${escapeHtml(s.clash_api || "")}" onchange="saveSetting('clash_api', this.value)">
+        <div class="hint">默认 http://127.0.0.1:9090。FlClash / Clash Verge 需先打开外部控制器。TUN 不是必须的。</div>
+      </div>
+      <div class="field">
+        <label>密钥（可选）</label>
+        <input type="password" value="${escapeHtml(s.clash_secret || "")}" autocomplete="off" onchange="saveSetting('clash_secret', this.value)">
+      </div>
+      <div class="acts"><button type="button" onclick="testClash()">测试连接</button></div>
+      ${clashNote ? `<p class="${clashNote.startsWith("已接通") ? "ok" : "hint"}">${escapeHtml(clashNote)}</p>` : ""}
+      <h2>机场账期</h2>
+      <div class="field">
+        <label>原始订阅地址（可选）</label>
+        <input type="password" value="${escapeHtml(s.sub_url || "")}" autocomplete="off" onchange="saveSetting('sub_url', this.value)">
+        <div class="hint">填机场给 Clash 的原始订阅。转换器链接通常没有已用/总量。</div>
+      </div>
+      <label class="row">
+        <input type="checkbox" ${s.show_airport !== false ? "checked" : ""} onchange="saveSetting('show_airport', this.checked)">
+        <div>首页显示机场账期</div>
+      </label>`;
+  } else if (setPane === "data") {
+    body = `
+      <h2>数据</h2>
+      <p class="path">${escapeHtml(s.data_dir || "")}</p>
+      <div class="acts">
+        <button type="button" onclick="openDataDir()">打开数据文件夹</button>
+        <button type="button" onclick="openInstallDir()">打开安装目录</button>
+        <button type="button" onclick="copyDiag()">复制诊断信息</button>
+      </div>
+      <div class="field">
+        <label>排行数据保留天数</label>
+        <input type="number" min="7" max="365" value="${Number(s.retention_days || 40)}" onchange="saveSetting('retention_days', Number(this.value))">
+        <div class="hint">只影响时段排行。连接记录文件不会按这个天数自动删。</div>
+      </div>
+      <p class="hint">清零累计在排行页。卸载打包版可运行安装目录里的 uninstall.ps1，默认保留流量记录。</p>`;
+  } else if (setPane === "about") {
+    body = `
+      <div class="about-hero">
+        <h3>Flash Monitor</h3>
+        <p>v${escapeHtml(s.version || "")}${s.frozen ? " · 安装版" : " · 源码运行"} · ${escapeHtml(s.license || "MIT")}</p>
+      </div>
+      <p>本机监视 FlClash / mihomo 的分流和流量。只监听 127.0.0.1，记录留在这台电脑上。</p>
+      <p id="upd-note" class="hint">${updateInfo && updateInfo.latest ? (
+        updateInfo.newer
+          ? `GitHub 最新 v${escapeHtml(updateInfo.latest)}，点右上角「更新」下载并重启。`
+          : `已是最新（GitHub v${escapeHtml(updateInfo.latest || s.version || "")}）。`
+      ) : "点右上角「更新」检查 GitHub 发行版。"}</p>
+      <div class="acts">
+        <button type="button" onclick="doUpdate()">检查更新</button>
+        <button type="button" onclick="window.open(${JSON.stringify(s.github || "https://github.com/finnheihei/FlashMonitor")},'_blank')">GitHub</button>
+      </div>
+      <h2>快捷键</h2>
+      <p class="hint"><span class="kbd">1</span>–<span class="kbd">5</span> 切换页面 · <span class="kbd">/</span> 搜索 · <span class="kbd">Esc</span> 清空搜索</p>
+      <h2>签名与 Defender</h2>
+      <p class="hint">安装版没有代码签名。Defender 若误报 Bearfoos 并删掉 exe，到「Windows 安全中心 → 保护历史记录」允许。流量记录还在数据目录。</p>
+      <p class="hint">© 2026 finnheihei · MIT License</p>`;
+  } else {
+    body = `
+      <h2>启动${note}</h2>
+      <label class="row">
+        <input type="checkbox" ${s.autostart ? "checked" : ""} onchange="saveSetting('autostart', this.checked)">
+        <div>开机自启动<div class="hint">写入当前用户启动项。打包版请打开 FlashMonitor.exe 后再勾。</div></div>
+      </label>
+      <label class="row">
+        <input type="checkbox" ${s.start_minimized ? "checked" : ""} onchange="saveSetting('start_minimized', this.checked)">
+        <div>启动后藏到托盘</div>
+      </label>
+      <label class="row">
+        <input type="checkbox" ${s.close_to_tray !== false ? "checked" : ""} onchange="saveSetting('close_to_tray', this.checked)">
+        <div>关闭窗口藏到托盘<div class="hint">采集继续。彻底退出用托盘「退出 Flash Monitor」。</div></div>
+      </label>
+      <h2>忽略的程序</h2>
+      <p class="hint">忽略后不出现在排行、分流和托盘提示。</p>
+      ${ign}`;
+  }
+  return `<div class="settings" id="set-form"><aside class="set-nav">${nav}</aside><div class="set-body">${body}</div></div>`;
 }
 function paintLive() {
   const box = document.getElementById("live");
@@ -783,7 +1069,7 @@ function paintLive() {
   const pp = tot ? Math.round(100 * pd / tot) : 0;
   document.getElementById("pipe-proxy").style.width = (tot ? pp : 0) + "%";
   document.getElementById("pipe-direct").style.width = (tot ? (100 - pp) : 0) + "%";
-  document.getElementById("rates").textContent = `↓ ${fmtSpeed(live.down || 0)}  ↑ ${fmtSpeed(live.up || 0)}`;
+  document.getElementById("rates").innerHTML = `<span class="dn">↓ ${fmtSpeed(live.down || 0)}</span>  <span class="up">↑ ${fmtSpeed(live.up || 0)}</span>`;
   document.getElementById("split-lab").textContent = tot ? `代理 ${pp}% · 直连 ${100 - pp}%` : "还没流量";
   const eaters = live.eaters || [];
   document.getElementById("eaters").innerHTML = eaters.length
@@ -791,7 +1077,7 @@ function paintLive() {
         const lane = Number(e.proxy_down || 0) >= Number(e.direct_down || 0) ? "proxy" : "direct";
         return `<span class="who">${iconImg(e.process)}<span>${escapeHtml(labelOf(e.process, e.title))}</span><span class="spd ${lane}">${fmtSpeed(Number(e.down || 0) + Number(e.up || 0))}</span></span>`;
       }).join("")
-    : `<span class="spd">没有明显在跑的程序</span>`;
+    : `<span class="idle">没有明显在跑的程序</span>`;
 }
 function paintChrome() {
   if (!last) return;
@@ -804,15 +1090,18 @@ function paintChrome() {
       : (s.sysproxy || s.mode === "sysproxy")
         ? "系统代理"
         : "未接管";
-  const bits = [
-    mode,
-    s.clash_api ? "已接 Clash" : "未接 Clash 接口",
-    (s.tun_up && s.leak_n ? "漏网 " + s.leak_n : ""),
-    (s.nodes || []).join(" · ") || "无节点",
-    s.version ? "v" + s.version : "",
-    new Date((last.ts || 0) * 1000).toLocaleTimeString()
+  const chips = [
+    `<span class="chip">${escapeHtml(mode)}</span>`,
+    s.clash_api ? `<span class="chip ok">已接 Clash</span>` : `<span class="chip warn">未接 Clash</span>`,
+    (s.tun_up && s.leak_n ? `<span class="chip bad">漏网 ${s.leak_n}</span>` : ""),
+    ((s.nodes || []).length ? `<span class="chip">${escapeHtml((s.nodes || []).join(" · "))}</span>` : `<span class="chip">无节点</span>`),
+    (s.version ? `<span class="chip">v${escapeHtml(s.version)}</span>` : ""),
+    `<span class="chip">${escapeHtml(new Date((last.ts || 0) * 1000).toLocaleTimeString())}</span>`
   ].filter(Boolean);
-  document.getElementById("status").textContent = bits.join("  ·  ");
+  document.getElementById("status").innerHTML = chips.join("");
+  const bv = document.getElementById("brand-ver");
+  if (bv) bv.textContent = s.version ? "v" + s.version : "";
+  paintSetup();
   if (filter === "settings") {
     document.getElementById("airport").hidden = true;
     document.getElementById("quota").hidden = true;
@@ -822,25 +1111,29 @@ function paintChrome() {
   const sub = last.sub || {};
   const used = Number(sub.used || 0);
   const total = Number(sub.total || 0);
-  if (!total && !used) {
-    boxA.hidden = false;
-    boxA.innerHTML = `<p><b>机场</b> 还没读到账期流量（你面板上是 已用/总量，上传、下载）
-      <button type="button" data-refresh-sub="1">刷新</button></p>
-      <p class="hint">FlClash 当前订阅如果是转换器，通常没有这组头。到「设置」填机场原始 Clash 订阅后，这里会显示和面板一样的数字。本机排行只统计采集到的连接，对不齐是正常的。</p>`;
+  if (!airportOn()) {
+    boxA.hidden = true;
+    boxA.innerHTML = "";
   } else {
-    const pct = total ? Math.min(100, Math.round(1000 * used / total) / 10) : 0;
-    let expire = "";
-    if (sub.expire) {
-      const d = new Date(Number(sub.expire) * 1000);
-      if (!Number.isNaN(d.getTime())) expire = " · 到期 " + d.toLocaleDateString("zh-CN");
+    const acts = `<span class="acts"><button type="button" data-refresh-sub="1">刷新</button><button type="button" data-hide-airport="1">隐藏</button></span>`;
+    if (!total && !used) {
+      boxA.hidden = false;
+      boxA.innerHTML = `<div class="head"><p><b>机场</b> 还没读到账期流量（你面板上是 已用/总量，上传、下载）</p>${acts}</div>
+        <p class="hint">FlClash 当前订阅如果是转换器，通常没有这组头。到「设置」填机场原始 Clash 订阅后，这里会显示和面板一样的数字。本机排行只统计采集到的连接，对不齐是正常的。</p>`;
+    } else {
+      const pct = total ? Math.min(100, Math.round(1000 * used / total) / 10) : 0;
+      let expire = "";
+      if (sub.expire) {
+        const d = new Date(Number(sub.expire) * 1000);
+        if (!Number.isNaN(d.getTime())) expire = " · 到期 " + d.toLocaleDateString("zh-CN");
+      }
+      const name = sub.label ? escapeHtml(sub.label) + " · " : "";
+      boxA.hidden = false;
+      boxA.innerHTML = `<div class="head"><p><b>机场</b> ${name}${fmtQuota(used)} / ${fmtQuota(total)}（${pct}%）</p>${acts}</div>
+        <p>上传 ${fmtQuota(sub.upload || 0)} · 下载 ${fmtQuota(sub.download || 0)}${expire}</p>
+        <span class="bar"><i style="width:${Math.max(2, pct)}%"></i></span>
+        <p class="hint">和机场面板同一套账。本机排行只统计采集到的连接，对不齐是正常的。</p>`;
     }
-    const name = sub.label ? escapeHtml(sub.label) + " · " : "";
-    boxA.hidden = false;
-    boxA.innerHTML = `<p><b>机场</b> ${name}${fmtQuota(used)} / ${fmtQuota(total)}（${pct}%）
-      <button type="button" data-refresh-sub="1">刷新</button></p>
-      <p>上传 ${fmtQuota(sub.upload || 0)} · 下载 ${fmtQuota(sub.download || 0)}${expire}</p>
-      <span class="bar"><i style="width:${Math.max(2, pct)}%"></i></span>
-      <p class="hint">和机场面板同一套账。本机排行只统计采集到的连接，对不齐是正常的。</p>`;
   }
   const boxQ = document.getElementById("quota");
   const alerts = last.alerts || [];
@@ -856,6 +1149,7 @@ function paintChrome() {
         return `<p class="leak-line" data-open-leaks="1"><b>漏网 ${a.count}</b>${names ? " · " + escapeHtml(names) : ""}，点这里看连接</p>`;
       }
       if (a.kind === "new") {
+        if (prefs().show_new_banner === false) return "";
         return `<p class="new-line"><b>${escapeHtml(labelOf(a.process))}</b> 开始走网了 <button type="button" data-ack-new="${escapeHtml(a.process)}">知道了</button></p>`;
       }
       if (a.kind === "program") {
@@ -865,6 +1159,29 @@ function paintChrome() {
     }).join("");
   }
 }
+function paintSetup() {
+  const el = document.getElementById("setup");
+  if (!el) return;
+  const s = (last && last.status) || {};
+  if (filter === "settings" || s.clash_api) {
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
+  el.hidden = false;
+  el.innerHTML = `<h2>还没接到 Clash</h2>
+    <p>排行和分流需要外部控制器。只开系统代理也能看，但要先让客户端开放接口。</p>
+    <ol>
+      <li>打开 FlClash 或 Clash Verge</li>
+      <li>设置里打开外部控制器，地址一般是 <span class="kbd">127.0.0.1:9090</span></li>
+      <li>点「测试连接」，或到设置 → 连接核对地址和密钥</li>
+    </ol>
+    <div class="acts">
+      <button type="button" onclick="testClash()">测试连接</button>
+      <button type="button" onclick="gotoFilter('settings','connect')">打开连接设置</button>
+    </div>
+    ${clashNote ? `<p class="hint">${escapeHtml(clashNote)}</p>` : ""}`;
+}
 function render() {
   const isSet = filter === "settings";
   document.querySelector(".tools").style.display = isSet ? "none" : "flex";
@@ -873,9 +1190,12 @@ function render() {
   pbox.style.display = (!isSet && filter === "rank") ? "flex" : "none";
   mbox.style.display = (!isSet && filter === "rank") ? "flex" : "none";
   if (last) paintChrome();
+  else paintSetup();
   if (isSet) {
     document.getElementById("airport").hidden = true;
     document.getElementById("quota").hidden = true;
+    const setup = document.getElementById("setup");
+    if (setup) setup.hidden = true;
   }
   const main = document.getElementById("main");
   if (isSet) {
@@ -894,7 +1214,11 @@ async function tick() {
   try {
     const r = await fetch("/api/snapshot");
     last = await r.json();
-    if (last.error) throw new Error(last.error);
+    if (last.error && last.error !== "warming") throw new Error(last.error);
+    if (last.error === "warming") {
+      document.getElementById("status").innerHTML = `<span class="chip">正在采集…</span>`;
+      return;
+    }
     if (filter === "settings") paintChrome();
     else {
       render();
@@ -905,11 +1229,14 @@ async function tick() {
   }
 }
 function setFilter(id) {
-  filter = id;
-  [...box.children].forEach(x => x.classList.toggle("on", x.textContent === (FILTERS.find(f => f[0] === id) || [])[1]));
-  render();
+  gotoFilter(id);
 }
 document.getElementById("airport").addEventListener("click", async (e) => {
+  if (e.target.closest("[data-hide-airport]")) {
+    await saveSetting("show_airport", false);
+    flashToast("已隐藏。可在设置里重新打开。");
+    return;
+  }
   if (!e.target.closest("[data-refresh-sub]")) return;
   await fetch("/api/refresh-sub", { method: "POST" });
   setTimeout(tick, 800);
@@ -936,6 +1263,13 @@ document.getElementById("main").addEventListener("click", (e) => {
   if (ign) {
     e.stopPropagation();
     savePref(ign.dataset.ignore, { ignored: ign.dataset.on === "1" });
+    return;
+  }
+  const pane = e.target.closest("[data-pane]");
+  if (pane) {
+    setPane = pane.dataset.pane;
+    history.replaceState(null, "", "#settings/" + setPane);
+    render();
     return;
   }
   const pin = e.target.closest("[data-pin]");
@@ -975,10 +1309,37 @@ document.getElementById("main").addEventListener("click", (e) => {
   canvas.addEventListener("mouseleave", () => { hoverIdx = -1; drawChart(); });
   window.addEventListener("resize", () => drawChart());
 })();
-tick();
-setInterval(tick, 2000);
 document.getElementById("btn-update").onclick = doUpdate;
-peekUpdate();
+window.addEventListener("hashchange", () => { applyHash(); gotoFilter(filter, setPane); });
+window.addEventListener("keydown", (e) => {
+  const tag = (e.target && e.target.tagName) || "";
+  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") {
+    if (e.key === "Escape") { e.target.blur(); document.getElementById("q").value = ""; render(); }
+    return;
+  }
+  if (e.key === "/" ) { e.preventDefault(); document.getElementById("q").focus(); return; }
+  const map = { "1": "rank", "2": "lanes", "3": "conns", "4": "closed", "5": "settings" };
+  if (map[e.key]) gotoFilter(map[e.key]);
+});
+(async function boot() {
+  applyHash();
+  try {
+    settingsCache = await (await fetch("/api/settings")).json();
+    if (!location.hash && settingsCache.last_filter && FILTERS.some(f => f[0] === settingsCache.last_filter)) {
+      filter = settingsCache.last_filter;
+    }
+    if (settingsCache.last_period && PERIODS.some(p => p[0] === settingsCache.last_period)) {
+      period = settingsCache.last_period;
+    }
+  } catch {}
+  [...box.children].forEach(x => x.classList.toggle("on", x.textContent === (FILTERS.find(f => f[0] === filter) || [])[1]));
+  [...pbox.children].forEach(x => x.classList.toggle("on", x.textContent === (PERIODS.find(p => p[0] === period) || [])[1]));
+  const bv = document.getElementById("brand-ver");
+  if (bv && settingsCache && settingsCache.version) bv.textContent = "v" + settingsCache.version;
+  peekUpdate();
+  tick();
+  setInterval(tick, 2000);
+})();
 </script>
 </body>
 </html>

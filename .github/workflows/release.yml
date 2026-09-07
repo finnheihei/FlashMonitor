@@ -20,7 +20,7 @@ jobs:
         run: |
           python -m pip install -q pyinstaller
           python -c "from webview_win import prepare_loader_for_build; prepare_loader_for_build()"
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name FlashMonitor --icon icon.ico --add-data "ui.html;." --add-data "icon.ico;." --add-binary "native/WebView2Loader.dll;." monitor.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name FlashMonitor --icon icon.ico --version-file versioninfo.txt --add-data "ui.html;." --add-data "icon.ico;." --add-binary "native/WebView2Loader.dll;." monitor.py
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
@@ -28,3 +28,4 @@ jobs:
           files: |
             dist/FlashMonitor.exe
             install.ps1
+            uninstall.ps1
