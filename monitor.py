@@ -29,7 +29,7 @@ from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
 APP_NAME = "Flash Monitor"
 APP_ID = "FlashMonitor"
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.8.0"
 GITHUB_REPO = "finnheihei/FlashMonitor"
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = 8787
@@ -192,7 +192,7 @@ DEFAULT_SETTINGS = {
     "notify_quota": True,
     "notify_hide": False,
     "show_new_banner": True,
-    "last_filter": "rank",
+    "last_filter": "overview",
     "last_period": "today",
     "ignored": [],
     "pinned": [],
@@ -468,8 +468,8 @@ class AppSettings:
             if key in patch:
                 self.data[key] = bool(patch[key])
         if "last_filter" in patch:
-            val = str(patch.get("last_filter") or "rank")
-            if val in {"rank", "lanes", "conns", "closed", "settings"}:
+            val = str(patch.get("last_filter") or "overview")
+            if val in {"overview", "rank", "lanes", "conns", "closed", "settings"}:
                 self.data["last_filter"] = val
         if "last_period" in patch:
             val = str(patch.get("last_period") or "today")
@@ -758,13 +758,18 @@ def activate_running_window() -> bool:
     user32.FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
     user32.FindWindowW.restype = wintypes.HWND
     user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.ShowWindow.restype = wintypes.BOOL
+    user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    user32.PostMessageW.restype = wintypes.BOOL
     user32.SetForegroundWindow.argtypes = [wintypes.HWND]
     hwnd = user32.FindWindowW("FlashMonitorWnd", None)
     if not hwnd:
         hwnd = user32.FindWindowW(None, APP_NAME)
     if not hwnd:
         return False
-    user32.ShowWindow(hwnd, 9)
+    # SW_HIDE 的窗口不能靠 SW_RESTORE 唤起；还要发 WM_FM_SHOW 让 WebView 重新可见。
+    user32.ShowWindow(hwnd, 1)
+    user32.PostMessageW(hwnd, 0x8001, 0, 0)
     user32.SetForegroundWindow(hwnd)
     return True
 
@@ -2656,7 +2661,7 @@ class TrafficStore:
     def live_view(self) -> dict[str, Any]:
         rates = self.rates()
         skip = ignored_set()
-        bag: dict[str, dict[str, float | str]] = {}
+        bag: dict[str, dict[str, float | str | int]] = {}
         with self.lock:
             spd = dict(self.speed)
             titles = {n: str(rec.get("title") or "") for n, rec in self.programs.items()}
@@ -2667,7 +2672,17 @@ class TrafficStore:
                     continue
                 row = bag.setdefault(
                     name,
-                    {"process": name, "up": 0.0, "down": 0.0, "proxy_down": 0.0, "direct_down": 0.0, "title": titles.get(name, "")},
+                    {
+                        "process": name,
+                        "up": 0.0,
+                        "down": 0.0,
+                        "proxy_down": 0.0,
+                        "direct_down": 0.0,
+                        "proxy_up": 0.0,
+                        "direct_up": 0.0,
+                        "conns": 0,
+                        "title": titles.get(name, ""),
+                    },
                 )
                 up = float(rec.get("up") or 0)
                 down = float(rec.get("down") or 0)
@@ -2675,13 +2690,44 @@ class TrafficStore:
                 row["down"] = float(row["down"]) + down
                 if kind == "proxy":
                     row["proxy_down"] = float(row["proxy_down"]) + down
+                    row["proxy_up"] = float(row["proxy_up"]) + up
                 elif kind == "direct":
                     row["direct_down"] = float(row["direct_down"]) + down
+                    row["direct_up"] = float(row["direct_up"]) + up
                 path = paths.get(name) or ""
                 if path:
                     schedule_icon(name, path)
-        eaters = sorted(bag.values(), key=lambda r: -(float(r["up"]) + float(r["down"])))
-        eaters = [r for r in eaters if float(r["up"]) + float(r["down"]) >= 256][:3]
+            for rec in self.live.values():
+                name = str(rec.get("process") or "")
+                if not name or name.lower() in skip or name.lower() in CORE_NAMES:
+                    continue
+                row = bag.setdefault(
+                    name,
+                    {
+                        "process": name,
+                        "up": 0.0,
+                        "down": 0.0,
+                        "proxy_down": 0.0,
+                        "direct_down": 0.0,
+                        "proxy_up": 0.0,
+                        "direct_up": 0.0,
+                        "conns": 0,
+                        "title": titles.get(name, ""),
+                    },
+                )
+                row["conns"] = int(row.get("conns") or 0) + 1
+                path = paths.get(name) or ""
+                if path:
+                    schedule_icon(name, path)
+        eaters = sorted(
+            bag.values(),
+            key=lambda r: (-(float(r["up"]) + float(r["down"])), -int(r.get("conns") or 0)),
+        )
+        eaters = [
+            r
+            for r in eaters
+            if float(r["up"]) + float(r["down"]) >= 64 or int(r.get("conns") or 0)
+        ][:12]
         return {
             "up": float(rates.get("up") or 0),
             "down": float(rates.get("down") or 0),

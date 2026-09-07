@@ -37,7 +37,7 @@
     outline: 2px solid var(--proxy);
     outline-offset: 2px;
   }
-  .wrap { max-width: 1120px; margin: 0 auto; padding: 14px 18px 36px; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 14px 18px 36px; }
   header {
     display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     margin-bottom: 8px;
@@ -118,7 +118,7 @@
   .setup ol { margin: 8px 0 12px; padding-left: 20px; color: var(--ink); }
   .setup .acts { display: flex; gap: 8px; flex-wrap: wrap; }
   .tools {
-    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    display: none; gap: 8px; align-items: center; flex-wrap: wrap;
     margin: 10px 0;
   }
   .tools > select { height: 30px; background: var(--panel); }
@@ -132,7 +132,7 @@
     border-radius: 12px;
     box-shadow: var(--shadow);
   }
-  .chart-box { margin-bottom: 12px; overflow: hidden; }
+  .chart-box { margin-bottom: 12px; overflow: hidden; display: none; }
   .chart-head {
     display: flex; justify-content: space-between; align-items: center;
     padding: 10px 14px 0; color: var(--mute); font-size: 12px;
@@ -143,8 +143,9 @@
     content: ""; width: 8px; height: 8px; border-radius: 2px; background: currentColor;
   }
   .chart-wrap { position: relative; }
-  #chart { display: block; width: 100%; height: 128px; }
-  #chart-tip {
+  #chart, #dash-chart { display: block; width: 100%; height: 128px; cursor: crosshair; }
+  #dash-chart { height: 236px; }
+  .chart-tip {
     position: absolute; top: 8px; left: 8px; background: #fff;
     border: 1px solid var(--line); border-radius: 8px;
     padding: 5px 8px; font-size: 11px; font-family: var(--mono);
@@ -245,6 +246,81 @@
   .pill.leak { background: #fde7e9; color: var(--leak); }
   .act { text-align: right; white-space: nowrap; width: 3.5em; }
   .live { padding: 14px 16px 12px; margin-bottom: 10px; }
+  .dash { display: flex; flex-direction: column; gap: 12px; }
+  .dash-hero {
+    display: grid; grid-template-columns: minmax(0, 1fr) 276px; gap: 12px;
+  }
+  .dash-chart, .dash-panel, .dash-rail .stat {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; box-shadow: var(--shadow);
+  }
+  .dash-chart {
+    padding: 10px 12px 8px; min-width: 0;
+    background:
+      linear-gradient(180deg, #f7fafc 0%, #fff 42px);
+  }
+  .dash-chart .chart-wrap { min-height: 236px; }
+  .dash-rail { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .dash-rail .stat { padding: 12px 14px; }
+  .dash-rail .k {
+    color: var(--mute); font-size: 11px; font-weight: 600;
+    letter-spacing: 0.04em; margin-bottom: 6px;
+  }
+  .dash-rail .pair {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  }
+  .dash-rail .v {
+    font-family: var(--mono); font-size: 20px; font-weight: 650;
+    letter-spacing: -0.04em; font-variant-numeric: tabular-nums;
+    line-height: 1.15;
+  }
+  .dash-rail .sub {
+    color: var(--mute); font-size: 12px; margin-top: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .dash-rail .pipe-track { height: 10px; margin: 2px 0 8px; }
+  .dash-rail .link {
+    background: transparent; border: 0; padding: 0;
+    color: var(--proxy); font-weight: 600;
+  }
+  .dash-rail .nodes {
+    font-size: 12px; line-height: 1.45; word-break: break-all;
+  }
+  .dash-split { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 12px; }
+  .dash-panel { padding: 10px 12px 6px; overflow: hidden; min-width: 0; }
+  .panel-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 8px; margin: 0 0 6px; font-weight: 650; font-size: 13px;
+  }
+  .panel-head button {
+    background: transparent; border: 0; padding: 0;
+    color: var(--proxy); font-weight: 600; font-size: 12px;
+  }
+  .app-row, .dest-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px; align-items: center;
+    padding: 8px 2px; border-bottom: 1px solid var(--line);
+  }
+  .app-row:last-child, .dest-row:last-child { border-bottom: 0; }
+  .app-row .who { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+  .app-row .spd {
+    font-family: var(--mono); font-size: 12px; text-align: right;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .app-meter {
+    display: flex; height: 6px; background: var(--bar);
+    border-radius: 99px; overflow: hidden; max-width: 100%;
+  }
+  .app-meter i { display: block; height: 100%; }
+  .app-meter .proxy { background: var(--proxy); }
+  .app-meter .direct { background: var(--direct); }
+  .app-row .meta { margin: 0; color: var(--mute); font-size: 11px; }
+  .dest-row .host {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--mono); font-size: 12px;
+  }
+  .dest-row .n { color: var(--mute); font-size: 12px; white-space: nowrap; }
+  .dash-conns table { background: transparent; }
   .pipe-track {
     display: flex; height: 12px; background: var(--bar);
     overflow: hidden; border-radius: 99px;
@@ -295,6 +371,11 @@
   }
   .settings .ign-list li:last-child { border-bottom: 0; }
   .settings .ign-list button { padding: 3px 8px; }
+  @media (max-width: 980px) {
+    .dash-hero, .dash-split { grid-template-columns: 1fr; }
+    .dash-rail { display: grid; grid-template-columns: 1fr 1fr; }
+    .dash-rail .stat:first-child { grid-column: 1 / -1; }
+  }
   @media (max-width: 800px) {
     .hide-sm { display: none; }
     .lanes { grid-template-columns: 1fr; }
@@ -303,6 +384,8 @@
     .set-nav { display: flex; flex-wrap: wrap; gap: 4px; border-right: 0; border-bottom: 1px solid var(--line); }
     .set-nav button { width: auto; }
     .brand .ver { display: none; }
+    .dash-rail { grid-template-columns: 1fr; }
+    .dash-rail .v { font-size: 18px; }
   }
   @media (prefers-reduced-motion: reduce) {
     .pipe-track i { transition: none; }
@@ -325,7 +408,7 @@
   </header>
   <div class="meta" id="status"><span class="chip">正在启动…</span></div>
   <div id="setup" class="setup" hidden></div>
-  <section class="live" id="live">
+  <section class="live" id="live" hidden>
     <div class="pipe-track" id="pipe"><i class="proxy" id="pipe-proxy" style="width:0"></i><i class="direct" id="pipe-direct" style="width:0"></i></div>
     <div class="pipe-meta">
       <span class="rates" id="rates"></span>
@@ -361,13 +444,13 @@
     </div>
     <div class="chart-wrap">
       <canvas id="chart"></canvas>
-      <div id="chart-tip" hidden></div>
+      <div id="chart-tip" class="chart-tip" hidden></div>
     </div>
   </section>
   <div id="main"></div>
 </div>
 <script>
-const FILTERS = [["rank","排行"],["lanes","分流"],["conns","连接"],["closed","已结束"],["settings","设置"]];
+const FILTERS = [["overview","总览"],["rank","排行"],["lanes","分流"],["conns","连接"],["closed","已结束"],["settings","设置"]];
 const PERIODS = [["1h","近 1 小时"],["today","今天"],["7d","近 7 天"],["30d","近 30 天"],["all","累计"]];
 const NAMES = {
   msedge:"Edge", chrome:"Chrome", firefox:"Firefox", msedgewebview2:"WebView",
@@ -376,7 +459,7 @@ const NAMES = {
   node:"Node.js",
   MpDefenderCoreService:"Defender"
 };
-let filter = "rank";
+let filter = "overview";
 let period = "today";
 let rankMode = "proxy";
 let setPane = "general";
@@ -526,13 +609,15 @@ function fmtSpeed(n) {
 }
 function drawChart() {
   const hist = (last && last.history) || [];
-  const canvas = document.getElementById("chart");
-  const tip = document.getElementById("chart-tip");
+  const home = filter === "overview";
+  const canvas = document.getElementById(home ? "dash-chart" : "chart");
+  const tip = document.getElementById(home ? "dash-tip" : "chart-tip");
   if (!canvas) return;
+  bindChartCanvas(canvas);
   const wrap = canvas.parentElement;
   const dpr = window.devicePixelRatio || 1;
   const w = Math.max(wrap.clientWidth, 120);
-  const h = 128;
+  const h = home ? 236 : 128;
   canvas.width = Math.floor(w * dpr);
   canvas.height = Math.floor(h * dpr);
   canvas.style.width = w + "px";
@@ -540,10 +625,10 @@ function drawChart() {
   const ctx = canvas.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  const pad = { l: 8, r: 8, t: 8, b: 16 };
+  const pad = { l: home ? 44 : 8, r: 10, t: 10, b: home ? 22 : 16 };
   if (hist.length < 2) {
-    ctx.fillStyle = "#6b6b6b";
-    ctx.fillText("还没有速率样本", pad.l, 60);
+    ctx.fillStyle = "#5b6570";
+    ctx.fillText("还没有速率样本", pad.l, h / 2);
     if (tip) tip.hidden = true;
     return;
   }
@@ -556,6 +641,26 @@ function drawChart() {
   const innerH = h - pad.t - pad.b;
   const xAt = i => pad.l + (i / (hist.length - 1)) * innerW;
   const yAt = v => pad.t + innerH - (v / max) * innerH;
+  if (home) {
+    ctx.strokeStyle = "rgba(27,31,36,0.08)";
+    ctx.lineWidth = 1;
+    ctx.font = "11px Cascadia Mono, Consolas, monospace";
+    ctx.fillStyle = "#5b6570";
+    for (let g = 0; g <= 4; g++) {
+      const y = pad.t + innerH * g / 4;
+      ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(w - pad.r, y); ctx.stroke();
+      const lab = fmtBytes(max * (4 - g) / 4) + "/s";
+      ctx.fillText(lab, 6, y + 4);
+    }
+    const t0 = Number(hist[0].t || 0);
+    const t1 = Number(hist[hist.length - 1].t || 0);
+    if (t0 && t1 && t1 > t0) {
+      const mid = new Date((t0 + t1) / 2 * 1000);
+      ctx.fillText(new Date(t0 * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }), pad.l, h - 6);
+      ctx.fillText(mid.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }), pad.l + innerW / 2 - 18, h - 6);
+      ctx.fillText(new Date(t1 * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }), w - pad.r - 36, h - 6);
+    }
+  }
   function band(bottom, top, color) {
     ctx.beginPath();
     ctx.moveTo(xAt(0), yAt(bottom[0]));
@@ -567,15 +672,17 @@ function drawChart() {
   }
   const zero = dd.map(() => 0);
   band(zero, dd, "rgba(16,124,16,0.28)");
-  band(dd, stack, "rgba(0,120,212,0.32)");
+  band(dd, stack, "rgba(0,120,212,0.38)");
   ctx.beginPath();
   ctx.moveTo(xAt(0), yAt(up[0]));
   for (let i = 1; i < hist.length; i++) ctx.lineTo(xAt(i), yAt(up[i]));
   ctx.strokeStyle = "#c23900";
-  ctx.lineWidth = 1.4;
+  ctx.lineWidth = 1.6;
   ctx.stroke();
-  ctx.fillStyle = "#6b6b6b";
-  ctx.fillText(fmtBytes(max) + "/s", pad.l, 12);
+  if (!home) {
+    ctx.fillStyle = "#5b6570";
+    ctx.fillText(fmtBytes(max) + "/s", pad.l, 12);
+  }
   if (hoverIdx >= 0 && hoverIdx < hist.length && tip) {
     const hx = xAt(hoverIdx);
     ctx.strokeStyle = "#bbb";
@@ -1030,7 +1137,7 @@ function renderSettings() {
         <button type="button" onclick="window.open(${JSON.stringify(s.github || "https://github.com/finnheihei/FlashMonitor")},'_blank')">GitHub</button>
       </div>
       <h2>快捷键</h2>
-      <p class="hint"><span class="kbd">1</span>–<span class="kbd">5</span> 切换页面 · <span class="kbd">/</span> 搜索 · <span class="kbd">Esc</span> 清空搜索</p>
+      <p class="hint"><span class="kbd">1</span>–<span class="kbd">6</span> 切换页面 · <span class="kbd">/</span> 搜索 · <span class="kbd">Esc</span> 清空搜索</p>
       <h2>签名与 Defender</h2>
       <p class="hint">安装版没有代码签名。Defender 若误报 Bearfoos 并删掉 exe，到「Windows 安全中心 → 保护历史记录」允许。流量记录还在数据目录。</p>
       <p class="hint">© 2026 finnheihei · MIT License</p>`;
@@ -1055,23 +1162,207 @@ function renderSettings() {
   }
   return `<div class="settings" id="set-form"><aside class="set-nav">${nav}</aside><div class="set-body">${body}</div></div>`;
 }
+function bindChartCanvas(canvas) {
+  if (!canvas || canvas.dataset.chartBound === "1") return;
+  canvas.dataset.chartBound = "1";
+  canvas.addEventListener("mousemove", (e) => {
+    const hist = (last && last.history) || [];
+    if (hist.length < 2) return;
+    const rect = canvas.getBoundingClientRect();
+    const t = (e.clientX - rect.left) / Math.max(rect.width, 1);
+    hoverIdx = Math.round(Math.max(0, Math.min(1, t)) * (hist.length - 1));
+    drawChart();
+  });
+  canvas.addEventListener("mouseleave", () => { hoverIdx = -1; drawChart(); });
+}
+function liveSplit(live) {
+  const pd = Number(live.proxy_down || 0) + Number(live.proxy_up || 0);
+  const dd = Number(live.direct_down || 0) + Number(live.direct_up || 0);
+  const tot = pd + dd;
+  const pp = tot ? Math.round(100 * pd / tot) : 0;
+  return { pd, dd, tot, pp };
+}
+function overviewDests() {
+  const bag = new Map();
+  for (const f of (last && last.flows) || []) {
+    const raw = String(f.remote || "");
+    const host = raw.replace(/:\d+$/, "");
+    if (!host || host === "127.0.0.1" || host === "::1" || host === "localhost") continue;
+    if (!hit(f.process, labelOf(f.process, f.title), host, f.node, f.remote)) continue;
+    const cur = bag.get(host) || { host, n: 0, proxy: 0, direct: 0, leak: 0 };
+    cur.n += Number(f.n || 1);
+    if (f.path === "leak") cur.leak += 1;
+    else if (f.outbound === "proxy" || f.path === "proxy" || f.path === "sysproxy") cur.proxy += 1;
+    else cur.direct += 1;
+    bag.set(host, cur);
+  }
+  return [...bag.values()].sort((a, b) => b.n - a.n).slice(0, 8);
+}
+function renderOverview() {
+  const live = (last && last.live) || {};
+  const s = (last && last.status) || {};
+  const counts = (last && last.counts) || {};
+  const { tot, pp } = liveSplit(live);
+  const eaters = ((live.eaters || []).filter(e => hit(e.process, labelOf(e.process, e.title))));
+  const maxSpd = Math.max(1, ...eaters.map(e => Number(e.down || 0) + Number(e.up || 0)));
+  const dests = overviewDests();
+  const today = (((last && last.rank) || {}).today) || {};
+  const todayProxy = Number(today.proxy_download || 0) + Number(today.proxy_upload || 0);
+  const connN = (counts.proxy || 0) + (counts.direct || 0) + (counts.leak || 0) + (counts.sysproxy || 0);
+  const nodes = (s.nodes || []).filter(Boolean);
+  const sub = (last && last.sub) || {};
+  const used = Number(sub.used || 0);
+  const total = Number(sub.total || 0);
+  const histN = ((last && last.history) || []).length;
+  const histLab = histN ? `近 ${Math.max(1, Math.round(histN * 2 / 60))} 分钟` : "速率";
+  const appRows = eaters.length
+    ? eaters.map(e => {
+        const spd = Number(e.down || 0) + Number(e.up || 0);
+        const p = Number(e.proxy_down || 0) + Number(e.proxy_up || 0);
+        const d = Number(e.direct_down || 0) + Number(e.direct_up || 0);
+        const lane = p >= d ? "proxy" : "direct";
+        const width = Math.max(8, Math.round(100 * spd / maxSpd));
+        const inner = p + d;
+        const pw = inner ? Math.round(100 * p / inner) : (lane === "proxy" ? 100 : 0);
+        const dw = inner ? 100 - pw : (lane === "direct" ? 100 : 0);
+        const extra = [
+          Number(e.conns || 0) ? e.conns + " 条连接" : "",
+          p && d ? `代理 ${fmtSpeed(p)} · 直连 ${fmtSpeed(d)}` : ""
+        ].filter(Boolean).join(" · ");
+        return `<div class="app-row">
+          <div class="who">
+            <span class="app">${iconImg(e.process)}<span class="nm">${escapeHtml(labelOf(e.process, e.title))}</span></span>
+            <span class="app-meter" style="width:${width}%"><i class="proxy" style="width:${pw}%"></i><i class="direct" style="width:${dw}%"></i></span>
+            ${extra ? `<div class="meta">${escapeHtml(extra)}</div>` : ""}
+          </div>
+          <span class="spd ${lane}">${fmtSpeed(spd)}</span>
+        </div>`;
+      }).join("")
+    : `<div class="empty">没有明显在跑的程序</div>`;
+  const destRows = dests.length
+    ? dests.map(d => {
+        let tag = `<span class="pill direct">直连</span>`;
+        if (d.leak) tag = `<span class="pill leak">漏网</span>`;
+        else if (d.proxy && !d.direct) tag = `<span class="pill proxy">代理</span>`;
+        else if (d.proxy && d.direct) tag = `<span class="pill proxy">混合</span>`;
+        return `<div class="dest-row">
+          <div class="host" title="${escapeHtml(d.host)}">${tag} ${escapeHtml(d.host)}</div>
+          <span class="n">${d.n} 条</span>
+        </div>`;
+      }).join("")
+    : `<div class="empty">现在没有活跃远端</div>`;
+  const flows = (((last && last.flows) || []).filter(f => hit(f.process, labelOf(f.process, f.title), f.remote, f.node, f.note))).slice(0, 8);
+  const connTable = flows.length
+    ? `<table><thead><tr><th>出站</th><th>进程</th><th>远端</th><th class="num">下载</th></tr></thead>
+      <tbody>${flows.map(f => {
+        let tag = `<span class="pill direct">直连</span>`;
+        if (f.path === "leak") tag = `<span class="pill leak">漏网</span>`;
+        else if (f.outbound === "proxy") tag = `<span class="pill proxy">代理</span>`;
+        else if (f.inbound === "sysproxy" || f.path === "sysproxy") tag = `<span class="pill proxy">系统代理</span>`;
+        return `<tr>
+          <td>${tag}${f.node ? " " + escapeHtml(f.node) : ""}</td>
+          <td>${escapeHtml(labelOf(f.process, f.title))}</td>
+          <td>${escapeHtml(f.remote)}</td>
+          <td class="num">${fmtBytes(f.download)}</td>
+        </tr>`;
+      }).join("")}</tbody></table>`
+    : `<div class="empty">现在没有连接</div>`;
+  let airport = "";
+  if (airportOn()) {
+    if (!total && !used) {
+      airport = `<div class="stat"><div class="k">机场</div><div class="sub">还没读到账期。可在设置里填原始订阅。</div><button type="button" class="link" data-goto="settings" data-pane="connect">去连接设置</button></div>`;
+    } else {
+      const pct = total ? Math.min(100, Math.round(1000 * used / total) / 10) : 0;
+      let expire = "";
+      if (sub.expire) {
+        const d = new Date(Number(sub.expire) * 1000);
+        if (!Number.isNaN(d.getTime())) expire = " · 到期 " + d.toLocaleDateString("zh-CN");
+      }
+      airport = `<div class="stat">
+        <div class="k">机场${sub.label ? " · " + escapeHtml(sub.label) : ""}</div>
+        <div>${fmtQuota(used)} / ${fmtQuota(total)}</div>
+        <span class="bar"><i style="width:${Math.max(2, pct)}%"></i></span>
+        <div class="sub">${pct}% · 上传 ${fmtQuota(sub.upload || 0)} · 下载 ${fmtQuota(sub.download || 0)}${expire}</div>
+      </div>`;
+    }
+  }
+  return `<div class="dash">
+    <div class="dash-hero">
+      <section class="dash-chart">
+        <div class="chart-head">
+          <span>${histLab}</span>
+          <div class="legend">
+            <span class="proxy">代理↓</span>
+            <span class="down">直连↓</span>
+            <span class="up">上传↑</span>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="dash-chart"></canvas>
+          <div id="dash-tip" class="chart-tip" hidden></div>
+        </div>
+      </section>
+      <aside class="dash-rail">
+        <div class="stat">
+          <div class="pair">
+            <div><div class="k">下载</div><div class="v dn">${fmtSpeed(live.down || 0)}</div></div>
+            <div><div class="k">上传</div><div class="v up">${fmtSpeed(live.up || 0)}</div></div>
+          </div>
+        </div>
+        <div class="stat">
+          <div class="k">此刻分流</div>
+          <div class="pipe-track"><i class="proxy" style="width:${tot ? pp : 0}%"></i><i class="direct" style="width:${tot ? (100 - pp) : 0}%"></i></div>
+          <div class="sub">${tot ? `代理 ${pp}% · 直连 ${100 - pp}%` : "还没流量"} · 今天代理 ${fmtBytes(todayProxy)}</div>
+          <div class="sub"><button type="button" class="link" data-goto="rank">打开排行</button></div>
+        </div>
+        <div class="stat">
+          <div class="k">连接</div>
+          <div>${connN} 条在连</div>
+          <div class="sub">
+            <span class="proxy">${counts.proxy || 0} 代理</span> ·
+            <span class="down">${counts.direct || 0} 直连</span>
+            ${s.tun_up && s.leak_n ? ` · <button type="button" class="link" data-open-leaks="1">漏网 ${s.leak_n}</button>` : ""}
+          </div>
+          <div class="sub"><button type="button" class="link" data-goto="conns">查看全部</button></div>
+        </div>
+        <div class="stat">
+          <div class="k">当前节点</div>
+          <div class="nodes">${nodes.length ? escapeHtml(nodes.join(" · ")) : "无节点"}</div>
+          <div class="sub">Clash 会话 ↓ ${fmtBytes(s.download_total || 0)} · ↑ ${fmtBytes(s.upload_total || 0)}</div>
+        </div>
+        ${airport}
+      </aside>
+    </div>
+    <div class="dash-split">
+      <section class="dash-panel">
+        <div class="panel-head">正在用网 <button type="button" data-goto="lanes">分流</button></div>
+        ${appRows}
+      </section>
+      <section class="dash-panel">
+        <div class="panel-head">正在访问 <button type="button" data-goto="conns">连接</button></div>
+        ${destRows}
+      </section>
+    </div>
+    <section class="dash-panel dash-conns">
+      <div class="panel-head">活跃连接 <button type="button" data-goto="conns">全部</button></div>
+      ${connTable}
+    </section>
+  </div>`;
+}
 function paintLive() {
   const box = document.getElementById("live");
-  if (filter === "settings") {
+  if (filter === "settings" || filter === "overview") {
     box.hidden = true;
     return;
   }
   box.hidden = false;
   const live = (last && last.live) || {};
-  const pd = Number(live.proxy_down || 0) + Number(live.proxy_up || 0);
-  const dd = Number(live.direct_down || 0) + Number(live.direct_up || 0);
-  const tot = pd + dd;
-  const pp = tot ? Math.round(100 * pd / tot) : 0;
+  const { tot, pp } = liveSplit(live);
   document.getElementById("pipe-proxy").style.width = (tot ? pp : 0) + "%";
   document.getElementById("pipe-direct").style.width = (tot ? (100 - pp) : 0) + "%";
   document.getElementById("rates").innerHTML = `<span class="dn">↓ ${fmtSpeed(live.down || 0)}</span>  <span class="up">↑ ${fmtSpeed(live.up || 0)}</span>`;
   document.getElementById("split-lab").textContent = tot ? `代理 ${pp}% · 直连 ${100 - pp}%` : "还没流量";
-  const eaters = live.eaters || [];
+  const eaters = (live.eaters || []).slice(0, 5);
   document.getElementById("eaters").innerHTML = eaters.length
     ? eaters.map(e => {
         const lane = Number(e.proxy_down || 0) >= Number(e.direct_down || 0) ? "proxy" : "direct";
@@ -1094,24 +1385,24 @@ function paintChrome() {
     `<span class="chip">${escapeHtml(mode)}</span>`,
     s.clash_api ? `<span class="chip ok">已接 Clash</span>` : `<span class="chip warn">未接 Clash</span>`,
     (s.tun_up && s.leak_n ? `<span class="chip bad">漏网 ${s.leak_n}</span>` : ""),
-    ((s.nodes || []).length ? `<span class="chip">${escapeHtml((s.nodes || []).join(" · "))}</span>` : `<span class="chip">无节点</span>`),
-    (s.version ? `<span class="chip">v${escapeHtml(s.version)}</span>` : ""),
+    (filter === "overview" ? "" : ((s.nodes || []).length ? `<span class="chip">${escapeHtml((s.nodes || []).join(" · "))}</span>` : `<span class="chip">无节点</span>`)),
+    (filter === "overview" ? "" : (s.version ? `<span class="chip">v${escapeHtml(s.version)}</span>` : "")),
     `<span class="chip">${escapeHtml(new Date((last.ts || 0) * 1000).toLocaleTimeString())}</span>`
   ].filter(Boolean);
   document.getElementById("status").innerHTML = chips.join("");
   const bv = document.getElementById("brand-ver");
   if (bv) bv.textContent = s.version ? "v" + s.version : "";
   paintSetup();
+  const boxA = document.getElementById("airport");
   if (filter === "settings") {
-    document.getElementById("airport").hidden = true;
+    boxA.hidden = true;
     document.getElementById("quota").hidden = true;
     return;
   }
-  const boxA = document.getElementById("airport");
   const sub = last.sub || {};
   const used = Number(sub.used || 0);
   const total = Number(sub.total || 0);
-  if (!airportOn()) {
+  if (filter === "overview" || !airportOn()) {
     boxA.hidden = true;
     boxA.innerHTML = "";
   } else {
@@ -1137,7 +1428,7 @@ function paintChrome() {
   }
   const boxQ = document.getElementById("quota");
   const alerts = last.alerts || [];
-  if (!alerts.length) {
+  if (!alerts.length || filter === "overview") {
     boxQ.hidden = true;
     boxQ.innerHTML = "";
   } else {
@@ -1163,7 +1454,7 @@ function paintSetup() {
   const el = document.getElementById("setup");
   if (!el) return;
   const s = (last && last.status) || {};
-  if (filter === "settings" || s.clash_api) {
+  if (filter === "settings" || !last || last.error === "warming" || s.clash_api) {
     el.hidden = true;
     el.innerHTML = "";
     return;
@@ -1184,11 +1475,12 @@ function paintSetup() {
 }
 function render() {
   const isSet = filter === "settings";
-  document.querySelector(".tools").style.display = isSet ? "none" : "flex";
-  document.querySelector(".chart-box").style.display = isSet ? "none" : "block";
+  const isHome = filter === "overview";
+  document.querySelector(".tools").style.display = (isSet || isHome) ? "none" : "flex";
+  document.querySelector(".chart-box").style.display = "none";
   document.querySelector(".search").style.display = isSet ? "none" : "block";
-  pbox.style.display = (!isSet && filter === "rank") ? "flex" : "none";
-  mbox.style.display = (!isSet && filter === "rank") ? "flex" : "none";
+  pbox.style.display = (!isSet && !isHome && filter === "rank") ? "flex" : "none";
+  mbox.style.display = (!isSet && !isHome && filter === "rank") ? "flex" : "none";
   if (last) paintChrome();
   else paintSetup();
   if (isSet) {
@@ -1202,7 +1494,12 @@ function render() {
     main.innerHTML = renderSettings();
     return;
   }
-  if (!last) return;
+  if (isHome) {
+    main.innerHTML = renderOverview();
+    requestAnimationFrame(() => drawChart());
+    return;
+  }
+  if (!last || last.error === "warming") return;
   if (filter === "rank") main.innerHTML = renderRank();
   else if (filter === "lanes") main.innerHTML = renderLanes();
   else main.innerHTML = renderConns(filter === "closed" ? (last.closed || []) : (last.flows || []));
@@ -1217,6 +1514,7 @@ async function tick() {
     if (last.error && last.error !== "warming") throw new Error(last.error);
     if (last.error === "warming") {
       document.getElementById("status").innerHTML = `<span class="chip">正在采集…</span>`;
+      render();
       return;
     }
     if (filter === "settings") paintChrome();
@@ -1272,6 +1570,17 @@ document.getElementById("main").addEventListener("click", (e) => {
     render();
     return;
   }
+  const go = e.target.closest("[data-goto]");
+  if (go) {
+    gotoFilter(go.dataset.goto, go.dataset.pane || "");
+    return;
+  }
+  const openLeaks = e.target.closest("[data-open-leaks]");
+  if (openLeaks) {
+    leakOnly = true;
+    gotoFilter("conns");
+    return;
+  }
   const pin = e.target.closest("[data-pin]");
   if (pin) {
     e.stopPropagation();
@@ -1297,16 +1606,6 @@ document.getElementById("main").addEventListener("click", (e) => {
   render();
 });
 (function bindChart() {
-  const canvas = document.getElementById("chart");
-  canvas.addEventListener("mousemove", (e) => {
-    const hist = (last && last.history) || [];
-    if (hist.length < 2) return;
-    const rect = canvas.getBoundingClientRect();
-    const t = (e.clientX - rect.left) / Math.max(rect.width, 1);
-    hoverIdx = Math.round(Math.max(0, Math.min(1, t)) * (hist.length - 1));
-    drawChart();
-  });
-  canvas.addEventListener("mouseleave", () => { hoverIdx = -1; drawChart(); });
   window.addEventListener("resize", () => drawChart());
 })();
 document.getElementById("btn-update").onclick = doUpdate;
@@ -1318,15 +1617,15 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (e.key === "/" ) { e.preventDefault(); document.getElementById("q").focus(); return; }
-  const map = { "1": "rank", "2": "lanes", "3": "conns", "4": "closed", "5": "settings" };
+  const map = { "1": "overview", "2": "rank", "3": "lanes", "4": "conns", "5": "closed", "6": "settings" };
   if (map[e.key]) gotoFilter(map[e.key]);
 });
 (async function boot() {
   applyHash();
   try {
     settingsCache = await (await fetch("/api/settings")).json();
-    if (!location.hash && settingsCache.last_filter && FILTERS.some(f => f[0] === settingsCache.last_filter)) {
-      filter = settingsCache.last_filter;
+    if (!location.hash) {
+      filter = "overview";
     }
     if (settingsCache.last_period && PERIODS.some(p => p[0] === settingsCache.last_period)) {
       period = settingsCache.last_period;
@@ -1337,6 +1636,7 @@ window.addEventListener("keydown", (e) => {
   const bv = document.getElementById("brand-ver");
   if (bv && settingsCache && settingsCache.version) bv.textContent = "v" + settingsCache.version;
   peekUpdate();
+  render();
   tick();
   setInterval(tick, 2000);
 })();

@@ -24,7 +24,7 @@ powershell -File "$env:LOCALAPPDATA\FlashMonitor\uninstall.ps1"
 
 ## 能做什么
 
-- **正在跑**：打开就是代理/直连分流条和正在吃流量的程序
+- **总览**：打开就是速率图、分流比例、正在用网的程序和正在访问的网站
 - **排行**：按程序、节点、网站；近 1 小时 / 今天 / 7 天 / 30 天 / 累计。可钉住或忽略
 - **分流**：代理、直连分两列
 - **漏网**：开了 TUN 时，没进 TUN 的连接单独标出来
@@ -33,7 +33,7 @@ powershell -File "$env:LOCALAPPDATA\FlashMonitor\uninstall.ps1"
 - **更新**：右上角从 GitHub 下载最新 `FlashMonitor.exe` 并重启
 - **单实例**：再开一次会唤起已有窗口
 
-快捷键：`1`–`5` 切换页面，`/` 搜索，`Esc` 清空搜索。
+快捷键：`1`–`6` 切换页面，`/` 搜索，`Esc` 清空搜索。
 
 ## 从源码运行
 
