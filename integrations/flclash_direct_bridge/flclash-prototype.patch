@@ -1,0 +1,792 @@
+--- a/core/constant.go
++++ b/core/constant.go
+@@ -112,6 +112,9 @@
+ 	updateDnsMethod                CoreMethod = "updateDns"
+ 	crashMethod                    CoreMethod = "crash"
+ 	setupConfigMethod              CoreMethod = "setupConfig"
++	bridgeStrictCapabilitiesMethod CoreMethod = "bridgeStrictCapabilities"
++	bridgeStrictPrepareMethod      CoreMethod = "bridgeStrictPrepare"
++	bridgeStrictApplyMethod        CoreMethod = "bridgeStrictApply"
+ 	getConfigMethod                CoreMethod = "getConfig"
+ 	clearEffectMethod              CoreMethod = "clearEffect"
+ )
+--- /dev/null
++++ b/core/bridge_strict.go
+@@ -0,0 +1,154 @@
++package main
++
++import (
++	"crypto/rand"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"fmt"
++	"os"
++	"path/filepath"
++	"time"
++
++	"github.com/metacubex/mihomo/config"
++	"github.com/metacubex/mihomo/constant"
++	"github.com/metacubex/mihomo/hub"
++	"github.com/metacubex/mihomo/hub/executor"
++)
++
++const strictBridgeParserAudited = false
++
++type bridgeStrictPrepareParams struct {
++	Candidate string `json:"candidate"`
++}
++
++type bridgeStrictApplyParams struct {
++	Ticket string `json:"ticket"`
++}
++
++type bridgeStrictTicket struct {
++	config        *config.Config
++	base          *config.Config
++	candidateHash string
++	expires       time.Time
++}
++
++var bridgeStrictTickets = map[string]bridgeStrictTicket{}
++
++func bridgeHash(data []byte) string {
++	digest := sha256.Sum256(data)
++	return hex.EncodeToString(digest[:])
++}
++
++func bridgeNonRules(data []byte) (string, error) {
++	raw, err := config.UnmarshalRawConfig(data)
++	if err != nil {
++		return "", err
++	}
++	encoded, err := json.Marshal(raw)
++	if err != nil {
++		return "", err
++	}
++	var values map[string]json.RawMessage
++	if err = json.Unmarshal(encoded, &values); err != nil {
++		return "", err
++	}
++	delete(values, "rules")
++	delete(values, "Rules")
++	encoded, err = json.Marshal(values)
++	return bridgeHash(encoded), err
++}
++
++func bridgeStrictPrepare(params *bridgeStrictPrepareParams) (map[string]string, error) {
++	if !strictBridgeParserAudited {
++		return nil, fmt.Errorf("pinned_parser_side_effect_audit_required")
++	}
++	if len(params.Candidate) == 0 || len(params.Candidate) > 8*1024*1024 {
++		return nil, fmt.Errorf("invalid_candidate_size")
++	}
++	configMu.Lock()
++	defer configMu.Unlock()
++	old, err := os.ReadFile(filepath.Join(constant.Path.HomeDir(), "config.yaml"))
++	if err != nil {
++		return nil, err
++	}
++	before, err := bridgeNonRules(old)
++	if err != nil {
++		return nil, err
++	}
++	after, err := bridgeNonRules([]byte(params.Candidate))
++	if err != nil || before != after {
++		return nil, fmt.Errorf("non_rule_settings_changed")
++	}
++	candidate, err := executor.ParseWithBytes([]byte(params.Candidate))
++	if err != nil {
++		return nil, err
++	}
++	for key, ticket := range bridgeStrictTickets {
++		if time.Now().After(ticket.expires) {
++			delete(bridgeStrictTickets, key)
++		}
++	}
++	if len(bridgeStrictTickets) >= 8 {
++		return nil, fmt.Errorf("ticket_budget_exceeded")
++	}
++	hash := bridgeHash([]byte(params.Candidate))
++	nonce := make([]byte, 32)
++	if _, err = rand.Read(nonce); err != nil {
++		return nil, err
++	}
++	ticket := hex.EncodeToString(nonce)
++	bridgeStrictTickets[ticket] = bridgeStrictTicket{candidate, currentConfig, hash, time.Now().Add(30 * time.Second)}
++	return map[string]string{"ticket": ticket, "candidate_hash": hash, "nonrules_hash": before}, nil
++}
++
++func bridgeStrictApply(params *bridgeStrictApplyParams) (err error) {
++	if !strictBridgeParserAudited {
++		return fmt.Errorf("pinned_parser_side_effect_audit_required")
++	}
++	configMu.Lock()
++	defer configMu.Unlock()
++	ticket, exists := bridgeStrictTickets[params.Ticket]
++	if !exists || time.Now().After(ticket.expires) {
++		return fmt.Errorf("ticket_expired")
++	}
++	delete(bridgeStrictTickets, params.Ticket)
++	if currentConfig != ticket.base {
++		return fmt.Errorf("runtime_changed")
++	}
++	generated, err := os.ReadFile(filepath.Join(constant.Path.HomeDir(), "config.yaml"))
++	if err != nil || bridgeHash(generated) != ticket.candidateHash {
++		return fmt.Errorf("generated_candidate_changed")
++	}
++	defer func() {
++		if value := recover(); value != nil {
++			err = fmt.Errorf("apply_outcome_unknown_recovery_required: %v", value)
++		}
++	}()
++	hub.ApplyConfig(ticket.config)
++	updateListeners(ticket.config)
++	currentConfig = ticket.config
++	reconcileGeoUpdater()
++	return nil
++}
++
++func init() {
++	registerMethod(bridgeStrictCapabilitiesMethod, withoutArguments(func(response MethodResponse) {
++		response.success(map[string]any{"protocol": 1, "parser_side_effects_audited": strictBridgeParserAudited, "strict_load_preserves_old": strictBridgeParserAudited})
++	}))
++	registerMethod(bridgeStrictPrepareMethod, withArguments(func(params *bridgeStrictPrepareParams, response MethodResponse) {
++		result, err := bridgeStrictPrepare(params)
++		if err != nil {
++			response.failure("strict_refused", err.Error(), nil)
++			return
++		}
++		response.success(result)
++	}))
++	registerMethod(bridgeStrictApplyMethod, withArguments(func(params *bridgeStrictApplyParams, response MethodResponse) {
++		if err := bridgeStrictApply(params); err != nil {
++			response.failure("strict_refused", err.Error(), nil)
++			return
++		}
++		response.success(true)
++	}))
++}
+--- /dev/null
++++ b/core/internal/strictbridge/transaction.go
+@@ -0,0 +1,49 @@
++package strictbridge
++
++import (
++	"errors"
++	"fmt"
++	"sync"
++)
++
++var ErrRevision = errors.New("configuration revision changed")
++
++type Engine[T any] struct {
++	mu       sync.Mutex
++	revision uint64
++	current  T
++}
++
++func New[T any](current T) *Engine[T] { return &Engine[T]{current: current} }
++
++func (e *Engine[T]) Snapshot() (T, uint64) {
++	e.mu.Lock()
++	defer e.mu.Unlock()
++	return e.current, e.revision
++}
++
++func (e *Engine[T]) Change(expected uint64, parse func() (T, error), persist func(T) error, apply func(T) error) (err error) {
++	e.mu.Lock()
++	defer e.mu.Unlock()
++	if e.revision != expected {
++		return ErrRevision
++	}
++	candidate, err := parse()
++	if err != nil {
++		return fmt.Errorf("full parse refused: %w", err)
++	}
++	if err = persist(candidate); err != nil {
++		return fmt.Errorf("persistence refused: %w", err)
++	}
++	defer func() {
++		if value := recover(); value != nil {
++			err = fmt.Errorf("apply outcome unknown; recovery required: %v", value)
++		}
++	}()
++	if err = apply(candidate); err != nil {
++		return fmt.Errorf("apply refused; compensation required: %w", err)
++	}
++	e.current = candidate
++	e.revision++
++	return nil
++}
+--- /dev/null
++++ b/core/internal/strictbridge/transaction_test.go
+@@ -0,0 +1,53 @@
++package strictbridge
++
++import (
++	"errors"
++	"strings"
++	"testing"
++)
++
++func TestBadSemanticRuleDoesNotPersistApplyOrFallback(t *testing.T) {
++	e := New("old-listeners-and-rules")
++	called := false
++	err := e.Change(0, func() (string, error) { return "", errors.New("NOT-A-RULE") },
++		func(string) error { called = true; return nil }, func(string) error { called = true; return nil })
++	current, revision := e.Snapshot()
++	if err == nil || called || current != "old-listeners-and-rules" || revision != 0 {
++		t.Fatal("semantic error changed old state", err, current, revision)
++	}
++}
++
++func TestSuccessAndStaleNativeEdit(t *testing.T) {
++	e := New("old")
++	var sequence []string
++	err := e.Change(0, func() (string, error) { sequence = append(sequence, "parse"); return "new", nil },
++		func(string) error { sequence = append(sequence, "persist"); return nil },
++		func(string) error { sequence = append(sequence, "apply"); return nil })
++	if err != nil || strings.Join(sequence, ",") != "parse,persist,apply" {
++		t.Fatal(err, sequence)
++	}
++	err = e.Change(0, func() (string, error) { t.Fatal("stale parse called"); return "", nil }, nil, nil)
++	if !errors.Is(err, ErrRevision) {
++		t.Fatal(err)
++	}
++}
++
++func TestPersistFailurePreservesCurrent(t *testing.T) {
++	e := New("old")
++	err := e.Change(0, func() (string, error) { return "new", nil },
++		func(string) error { return errors.New("disk full") }, func(string) error { t.Fatal("apply called"); return nil })
++	current, revision := e.Snapshot()
++	if err == nil || current != "old" || revision != 0 {
++		t.Fatal(err, current, revision)
++	}
++}
++
++func TestApplyPanicIsUnknownAndDoesNotPublishSuccess(t *testing.T) {
++	e := New("old")
++	err := e.Change(0, func() (string, error) { return "new", nil }, func(string) error { return nil },
++		func(string) error { panic("listener failed") })
++	current, revision := e.Snapshot()
++	if err == nil || !strings.Contains(err.Error(), "unknown") || current != "old" || revision != 0 {
++		t.Fatal(err, current, revision)
++	}
++}
+--- a/lib/core/controller.dart
++++ b/lib/core/controller.dart
+@@ -108,6 +108,12 @@
+     return _interface.updateConfig(updateParams);
+   }
+ 
++  Future<Map<String, dynamic>> bridgeStrictCapabilities() => _interface.bridgeStrictCapabilities();
++
++  Future<Map<String, dynamic>> bridgeStrictPrepare(String candidate) => _interface.bridgeStrictPrepare(candidate);
++
++  Future<bool> bridgeStrictApply(String ticket) => _interface.bridgeStrictApply(ticket);
++
+   Future<String> setupConfig({
+     required SetupParams params,
+     Future<void> Function()? preloadInvoke,
+--- a/lib/core/interface.dart
++++ b/lib/core/interface.dart
+@@ -30,6 +30,9 @@
+   Future<String> updateConfig(UpdateParams updateParams);
+ 
+   Future<String> setupConfig(SetupParams setupParams);
++  Future<Map<String, dynamic>> bridgeStrictCapabilities();
++  Future<Map<String, dynamic>> bridgeStrictPrepare(String candidate);
++  Future<bool> bridgeStrictApply(String ticket);
+ 
+   Future<ProxiesData> getProxies();
+ 
+@@ -177,6 +180,23 @@
+   }
+ 
+   @override
++  Future<Map<String, dynamic>> bridgeStrictCapabilities() async {
++    return await _invokeMethod<Map<String, dynamic>>(method: CoreMethod.bridgeStrictCapabilities) ?? {};
++  }
++
++  @override
++  Future<Map<String, dynamic>> bridgeStrictPrepare(String candidate) async {
++    final result = await _invokeMethod<Map<String, dynamic>>(method: CoreMethod.bridgeStrictPrepare, arguments: {'candidate': candidate});
++    if (result == null) throw StateError('strict_prepare_empty');
++    return result;
++  }
++
++  @override
++  Future<bool> bridgeStrictApply(String ticket) async {
++    return await _invokeMethod<bool>(method: CoreMethod.bridgeStrictApply, arguments: {'ticket': ticket}) ?? false;
++  }
++
++  @override
+   Future<String> setupConfig(SetupParams setupParams) async {
+     return _invokeMessage(
+       method: CoreMethod.setupConfig,
+--- a/lib/core/method.dart
++++ b/lib/core/method.dart
+@@ -33,6 +33,9 @@
+   getMemory,
+   crash,
+   setupConfig,
++  bridgeStrictCapabilities,
++  bridgeStrictPrepare,
++  bridgeStrictApply,
+   clearEffect,
+   updateDns,
+ }
+--- a/lib/database/database.dart
++++ b/lib/database/database.dart
+@@ -1,3 +1,4 @@
++import '../bridge/journal.dart';
+ import 'dart:async';
+ import 'dart:convert';
+ import 'dart:io';
+@@ -34,7 +35,7 @@
+   Database([QueryExecutor? executor]) : super(executor ?? _openConnection());
+ 
+   @override
+-  int get schemaVersion => 3;
++  int get schemaVersion => 4;
+ 
+   static LazyDatabase _openConnection() {
+     return LazyDatabase(() async {
+@@ -46,7 +47,9 @@
+   @override
+   MigrationStrategy get migration {
+     return MigrationStrategy(
++      onCreate: (m) async { await m.createAll(); await customStatement(bridgeJournalMigration); },
+       onUpgrade: (m, from, to) async {
++        if (from < 4) await customStatement(bridgeJournalMigration);
+         if (from < 2) {
+           await m.createTable(proxyGroups);
+           await m.createTable(iconRecords);
+--- /dev/null
++++ b/lib/bridge/coordinator.dart
+@@ -0,0 +1,32 @@
++import 'dart:async';
++
++enum ConfigurationWriter { ruleEdit, profileSwitch, subscriptionPublish, sourceRestore, configLoad }
++
++class ConfigurationCoordinator {
++  final Set<ConfigurationWriter> enrolled = {};
++  final Object _zoneKey = Object();
++  Future<void> _tail = Future<void>.value();
++  int revision = 0;
++
++  bool get fullyCoordinated => enrolled.length == ConfigurationWriter.values.length;
++
++  Future<T> exclusive<T>(Future<T> Function() action) async {
++    if (Zone.current[_zoneKey] == this) return action();
++    final previous = _tail;
++    final done = Completer<void>();
++    _tail = done.future;
++    await previous;
++    try {
++      return await runZoned(action, zoneValues: {_zoneKey: this});
++    } finally {
++      done.complete();
++    }
++  }
++
++  Future<T> mutation<T>(ConfigurationWriter writer, Future<T> Function() action) => exclusive(() async {
++    if (!enrolled.contains(writer)) throw StateError('writer_not_coordinated');
++    final result = await action();
++    revision++;
++    return result;
++  });
++}
+--- /dev/null
++++ b/lib/bridge/journal.dart
+@@ -0,0 +1,84 @@
++import 'dart:convert';
++
++import 'package:crypto/crypto.dart';
++import 'package:drift/drift.dart';
++import 'package:fl_clash/common/common.dart';
++import 'package:fl_clash/database/database.dart';
++import 'package:fl_clash/enum/enum.dart';
++import 'package:fl_clash/models/models.dart';
++
++const bridgeJournalMigration = '''
++CREATE TABLE IF NOT EXISTS monitor_bridge_operations (
++ operation_id TEXT NOT NULL PRIMARY KEY,
++ profile_id INTEGER NOT NULL,
++ state TEXT NOT NULL,
++ intent_hash TEXT NOT NULL,
++ owned_json TEXT NOT NULL,
++ receipt_json TEXT NOT NULL
++)''';
++
++class BridgeJournal {
++  BridgeJournal(this.database);
++  final Database database;
++
++  String fingerprint(Object value) => sha256.convert(utf8.encode(jsonEncode(value))).toString();
++
++  Future<Map<String, dynamic>?> find(String operationId) async {
++    final row = await database.customSelect(
++      'SELECT * FROM monitor_bridge_operations WHERE operation_id = ?',
++      variables: [Variable(operationId)],
++    ).getSingleOrNull();
++    return row?.data;
++  }
++
++  Future<void> setState(String operationId, String state, Map<String, Object?> receipt) => database.customStatement(
++    'UPDATE monitor_bridge_operations SET state = ?, receipt_json = ? WHERE operation_id = ?',
++    [state, jsonEncode(receipt), operationId],
++  );
++
++  Future<List<Map<String, dynamic>>> ownedRows(int ruleId) async => (await database.customSelect(
++    'SELECT r.*, m.id AS mapping_id, m.profile_id, m.scene, m."order" FROM rules r JOIN profile_rule_mapping m ON m.rule_id=r.id WHERE r.id=? ORDER BY m.id',
++    variables: [Variable(ruleId)],
++  ).get()).map((row) => row.data).toList();
++
++  Future<Map<String, Object?>> insert({required String operationId, required int profileId, required String content, required String intentHash, Map<String, Object?> context = const {}}) => database.transaction(() async {
++    final existing = await find(operationId);
++    if (existing != null) {
++      if (existing['intent_hash'] != intentHash || existing['profile_id'] != profileId) throw StateError('operation_scope_conflict');
++      return jsonDecode(existing['receipt_json'] as String) as Map<String, dynamic>;
++    }
++    final effective = await database.rulesDao.queryAddedRules(profileId).get();
++    final added = await database.rulesDao.queryProfileAddedRules(profileId).get();
++    if (effective.any((rule) => rule.ruleAction == RuleAction.AND && rule.content == content && rule.ruleTarget == 'REJECT')) throw StateError('external_duplicate_not_owned');
++    if (added.isNotEmpty && added.first.order == null) throw StateError('unknown_rule_order');
++    final order = indexing.generateKeyBetween(null, added.isEmpty ? null : added.first.order);
++    if (order == null) throw StateError('unknown_rule_order');
++    final rule = Rule(id: snowflake.id, ruleAction: RuleAction.AND, content: content, ruleTarget: 'REJECT', order: order);
++    await database.rulesDao.putProfileAddedRule(profileId, rule);
++    final rows = await ownedRows(rule.id);
++    if (rows.length != 1) throw StateError('ambiguous_owned_row');
++    final receipt = <String, Object?>{...context, 'operation_id': operationId, 'profile_id': profileId.toString(), 'rule_id': rule.id.toString(), 'mapping_id': '${profileId}_${rule.id}_added', 'state': 'persisted'};
++    await database.customStatement(
++      'INSERT INTO monitor_bridge_operations VALUES (?, ?, ?, ?, ?, ?)',
++      [operationId, profileId, 'persisted', intentHash, jsonEncode(rows), jsonEncode(receipt)],
++    );
++    return receipt;
++  });
++
++  Future<void> removeOwned(String operationId) => database.transaction(() async {
++    final operation = await find(operationId);
++    if (operation == null) throw StateError('operation_not_found');
++    final receipt = jsonDecode(operation['receipt_json'] as String) as Map<String, dynamic>;
++    final ruleId = int.parse(receipt['rule_id'] as String);
++    final current = await ownedRows(ruleId);
++    final expected = jsonDecode(operation['owned_json'] as String);
++    if (current.length != 1 || fingerprint(current) != fingerprint(expected)) throw StateError('ownership_or_external_reference_conflict');
++    await database.customUpdate(
++      'DELETE FROM profile_rule_mapping WHERE id=? AND profile_id=? AND rule_id=? AND scene=?',
++      variables: [Variable(receipt['mapping_id'] as String), Variable(operation['profile_id'] as int), Variable(ruleId), const Variable('added')],
++      updates: {database.profileRuleLinks},
++    );
++    await (database.delete(database.rules)..where((row) => row.id.equals(ruleId))).go();
++    await setState(operationId, 'durable_removed_runtime_pending', receipt);
++  });
++}
+--- /dev/null
++++ b/lib/bridge/service.dart
+@@ -0,0 +1,194 @@
++import 'dart:async';
++import 'dart:convert';
++import 'dart:math';
++
++import 'package:crypto/crypto.dart';
++
++import 'coordinator.dart';
++import 'journal.dart';
++
++class BridgeContext {
++  const BridgeContext({required this.profileId, required this.revision, required this.instanceId, required this.rootIdentity, required this.mode, required this.overwriteType});
++  final String profileId;
++  final String revision;
++  final String instanceId;
++  final String rootIdentity;
++  final String mode;
++  final String overwriteType;
++}
++
++class BridgeCandidate {
++  const BridgeCandidate({required this.context, required this.content, required this.ruleHash, required this.yaml, required this.nonrulesHash, required this.unmanagedHash});
++  final BridgeContext context;
++  final String content;
++  final String ruleHash;
++  final String yaml;
++  final String nonrulesHash;
++  final String unmanagedHash;
++}
++
++class RejectedBeforeApply implements Exception {}
++
++String bridgeErrorCode(Object error) => error is StateError && RegExp(r'^[a-z_]+$').hasMatch(error.message) ? error.message : 'native_operation_failed';
++
++abstract interface class NativeBridgeHooks {
++  bool get strictLoadPreservesOld;
++  bool get parserSideEffectsAudited;
++  bool get clientLifecycleTested;
++  Future<BridgeContext> snapshot();
++  Future<BridgeCandidate> preview(List<Map<String, dynamic>> subjects);
++  Future<String> validateFully(BridgeCandidate candidate);
++  Future<BridgeCandidate> invalidateAndCompileCurrent();
++  Future<void> loadStrict(BridgeCandidate candidate, String validationTicket);
++  Future<Map<String, Object?>> orderedReceipt(BridgeCandidate candidate);
++  Future<Map<String, Object?>> auditOperation(Map<String, dynamic> receipt);
++}
++
++class _Prepared {
++  _Prepared(this.operationId, this.candidate, this.token);
++  final String operationId;
++  final BridgeCandidate candidate;
++  final String token;
++  final DateTime expires = DateTime.now().add(const Duration(minutes: 2));
++}
++
++class NativeBridgeService {
++  NativeBridgeService(this.coordinator, this.journal, this.hooks);
++  final ConfigurationCoordinator coordinator;
++  final BridgeJournal journal;
++  final NativeBridgeHooks hooks;
++  final Map<String, _Prepared> _prepared = {};
++
++  String _nonce() => List.generate(32, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join();
++  String _hash(String text) => sha256.convert(utf8.encode(text)).toString();
++
++  Future<Map<String, Object?>> capabilities() async {
++    final context = await hooks.snapshot();
++    return {'protocol': 1, 'schema_version': journal.database.schemaVersion, 'instance_id': context.instanceId,
++      'root_identity': context.rootIdentity, 'profile_id': context.profileId, 'revision': context.revision,
++      'mode': context.mode, 'profile_mode': context.overwriteType, 'native_transaction': true,
++      'coordinated_mutations': coordinator.fullyCoordinated, 'strict_load_preserves_old': hooks.strictLoadPreservesOld,
++      'parser_side_effects_audited': hooks.parserSideEffectsAudited, 'client_lifecycle_tested': hooks.clientLifecycleTested,
++      'ordered_receipts': true};
++  }
++
++  Future<void> _requireReady() async {
++    if (!coordinator.fullyCoordinated || !hooks.strictLoadPreservesOld || !hooks.parserSideEffectsAudited || !hooks.clientLifecycleTested || journal.database.schemaVersion != 4) {
++      throw StateError('client_acceptance_incomplete');
++    }
++    final context = await hooks.snapshot();
++    if (context.mode != 'rule' || context.overwriteType != 'standard') throw StateError('unsupported_profile');
++  }
++
++  Future<Map<String, Object?>> prepare(Map<String, dynamic> request) => coordinator.exclusive(() async {
++    await _requireReady();
++    final operation = request['operation_id'] as String;
++    if (!RegExp(r'^[a-f0-9]{32}$').hasMatch(operation)) throw StateError('invalid_operation');
++    final context = await hooks.snapshot();
++    if (request['profile_id'] != context.profileId || request['expected_revision'] != context.revision) throw StateError('context_changed');
++    final values = request['subjects'];
++    if (values is! List || values.isEmpty || values.length > 32) throw StateError('invalid_scope');
++    final subjects = values.map((item) => Map<String, dynamic>.from(item as Map)).toList();
++    for (final subject in subjects) {
++      if (subject.keys.toSet().difference({'kind', 'value', 'include_subdomains'}).isNotEmpty || subject.length != 3) throw StateError('invalid_subject_fields');
++      final kind = subject['kind'];
++      final value = subject['value'];
++      if (!{'process_path', 'process_name', 'domain'}.contains(kind) || value is! String || value.isEmpty || value.length > 1024 || RegExp(r'[,\x00-\x1f\x7f]').hasMatch(value) || subject['include_subdomains'] is! bool) throw StateError('invalid_subject');
++      if (kind != 'domain' && (subject['include_subdomains'] == true || !value.toLowerCase().endsWith('.exe'))) throw StateError('invalid_process_scope');
++    }
++    _prepared.removeWhere((_, value) => DateTime.now().isAfter(value.expires));
++    if (_prepared.length >= 64) throw StateError('prepare_budget_exceeded');
++    final candidate = await hooks.preview(subjects);
++    if (candidate.context.revision != context.revision || candidate.context.profileId != context.profileId) throw StateError('preview_context_changed');
++    final prepared = _Prepared(operation, candidate, _nonce());
++    _prepared[operation] = prepared;
++    return {'operation_id': operation, 'profile_id': context.profileId, 'revision': context.revision, 'rule_hash': candidate.ruleHash, 'token': prepared.token};
++  });
++
++  Future<Map<String, Object?>> status(String operationId) async {
++    final row = await journal.find(operationId);
++    if (row == null) throw StateError('operation_not_found');
++    final receipt = jsonDecode(row['receipt_json'] as String) as Map<String, dynamic>;
++    if (row['state'] != 'verified') return {...receipt, 'state': row['state']};
++    final context = await hooks.snapshot();
++    final owned = await journal.ownedRows(int.parse(receipt['rule_id'] as String));
++    if (context.profileId != row['profile_id'].toString() || context.rootIdentity != receipt['root_identity'] || journal.fingerprint(owned) != journal.fingerprint(jsonDecode(row['owned_json'] as String))) {
++      return {...receipt, 'state': 'recovery_required'};
++    }
++    final audit = await hooks.auditOperation(receipt);
++    if (audit['ordered_verified'] != true || audit['runtime_rule_hash'] != row['intent_hash'] || audit['persistent_rule_hash'] != row['intent_hash']) return {...receipt, 'state': 'recovery_required'};
++    return {...receipt, ...audit, 'state': 'verified'};
++  }
++
++  Future<Map<String, Object?>> commit(Map<String, dynamic> request) => coordinator.exclusive(() async {
++    await _requireReady();
++    final operation = request['operation_id'] as String;
++    final existing = await journal.find(operation);
++    if (existing != null) return status(operation);
++    final prepared = _prepared[operation];
++    if (prepared == null || request['token'] != prepared.token || DateTime.now().isAfter(prepared.expires)) throw StateError('token_expired');
++    final candidate = prepared.candidate;
++    final context = await hooks.snapshot();
++    if (request['expected_revision'] != context.revision || context.revision != candidate.context.revision || context.profileId != candidate.context.profileId || context.instanceId != candidate.context.instanceId || context.rootIdentity != candidate.context.rootIdentity) throw StateError('context_changed');
++    final ticket = await hooks.validateFully(candidate);
++    var receipt = await journal.insert(operationId: operation, profileId: int.parse(context.profileId), content: candidate.content, intentHash: candidate.ruleHash,
++      context: {'instance_id': context.instanceId, 'root_identity': context.rootIdentity, 'context_revision': context.revision});
++    var loadSent = false;
++    try {
++      final compiled = await hooks.invalidateAndCompileCurrent();
++      if (_hash(compiled.yaml) != _hash(candidate.yaml) || compiled.nonrulesHash != candidate.nonrulesHash || compiled.unmanagedHash != candidate.unmanagedHash) throw StateError('compiled_candidate_changed');
++      await journal.setState(operation, 'applying', receipt);
++      loadSent = true;
++      await hooks.loadStrict(compiled, ticket);
++      final verified = await hooks.orderedReceipt(compiled);
++      receipt = {...receipt, ...verified, 'operation_id': operation, 'profile_id': context.profileId, 'instance_id': context.instanceId,
++        'state': 'verified', 'persistent_rule_hash': candidate.ruleHash, 'compiled_rule_hash': candidate.ruleHash,
++        'nonrules_before': candidate.nonrulesHash, 'nonrules_after': compiled.nonrulesHash,
++        'unmanaged_before': candidate.unmanagedHash, 'unmanaged_after': compiled.unmanagedHash};
++      if (verified['ordered_verified'] != true || verified['runtime_rule_hash'] != candidate.ruleHash) throw StateError('runtime_not_verified');
++      await journal.setState(operation, 'verified', receipt);
++      coordinator.revision++;
++      return receipt;
++    } catch (error) {
++      if (loadSent && error is! RejectedBeforeApply || error is TimeoutException) {
++        await journal.setState(operation, 'unknown', {...receipt, 'error': 'apply_outcome_unknown'});
++        rethrow;
++      }
++      try {
++        await journal.removeOwned(operation);
++        final remaining = await hooks.invalidateAndCompileCurrent();
++        final undoTicket = await hooks.validateFully(remaining);
++        await hooks.loadStrict(remaining, undoTicket);
++        final restored = await hooks.orderedReceipt(remaining);
++        if (restored['ordered_verified'] != true || restored['owned_absent'] != true) throw StateError('compensation_not_verified');
++        await journal.setState(operation, 'rolled_back', {...receipt, ...restored});
++      } catch (recovery) {
++        await journal.setState(operation, 'recovery_required', {...receipt, 'error': bridgeErrorCode(recovery)});
++      }
++      rethrow;
++    }
++  });
++
++  Future<Map<String, Object?>> undo(String operation) => coordinator.exclusive(() async {
++    await _requireReady();
++    final row = await journal.find(operation);
++    if (row == null) throw StateError('operation_not_found');
++    if (row['state'] == 'revoked') return status(operation);
++    final context = await hooks.snapshot();
++    if (row['profile_id'].toString() != context.profileId) throw StateError('profile_changed');
++    final old = jsonDecode(row['receipt_json'] as String) as Map<String, dynamic>;
++    if (old['instance_id'] != context.instanceId) throw StateError('instance_changed_recovery_required');
++    if (!{'verified', 'durable_removed_runtime_pending'}.contains(row['state'])) throw StateError('unknown_outcome_recovery_required');
++    if (row['state'] == 'verified') await journal.removeOwned(operation);
++    final remaining = await hooks.invalidateAndCompileCurrent();
++    final ticket = await hooks.validateFully(remaining);
++    await hooks.loadStrict(remaining, ticket);
++    final check = await hooks.orderedReceipt(remaining);
++    if (check['ordered_verified'] != true || check['owned_absent'] != true) throw StateError('undo_not_verified');
++    final receipt = <String, Object?>{...old, ...check, 'state': 'revoked', 'operation_id': operation, 'profile_id': context.profileId,
++      'unmanaged_before': remaining.unmanagedHash, 'unmanaged_after': remaining.unmanagedHash};
++    await journal.setState(operation, 'revoked', receipt);
++    coordinator.revision++;
++    return receipt;
++  });
++}
+--- /dev/null
++++ b/lib/bridge/session_server.dart
+@@ -0,0 +1,58 @@
++import 'dart:convert';
++import 'dart:io';
++import 'dart:math';
++
++import 'service.dart';
++
++class BridgeSessionServer {
++  BridgeSessionServer(this.service);
++  final NativeBridgeService service;
++  HttpServer? _server;
++  final String token = List.generate(32, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join();
++
++  Future<Uri> startForVerifiedBootstrap() async {
++    if (_server != null) throw StateError('session_already_started');
++    _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0, shared: false);
++    _server!.listen(_handle);
++    return Uri.parse('http://127.0.0.1:${_server!.port}/bridge');
++  }
++
++  Future<void> close() async {
++    await _server?.close(force: true);
++    _server = null;
++  }
++
++  Future<void> _handle(HttpRequest request) async {
++    request.response.headers.contentType = ContentType.json;
++    request.response.headers.set('Cache-Control', 'no-store');
++    try {
++      if (request.uri.path != '/bridge' || request.uri.hasQuery || request.method != 'POST' || request.headers.value('Origin') != null || request.headers.value('Authorization') != 'Bearer $token') throw StateError('unauthorized');
++      if (request.headers.contentType?.mimeType != 'application/json') throw StateError('invalid_content_type');
++      final bytes = <int>[];
++      await for (final chunk in request.timeout(const Duration(seconds: 5))) {
++        bytes.addAll(chunk);
++        if (bytes.length > 65536) throw StateError('request_too_large');
++      }
++      final body = Map<String, dynamic>.from(jsonDecode(utf8.decode(bytes)) as Map);
++      if (body.keys.toSet().difference({'action', 'params'}).isNotEmpty || body.length != 2) throw StateError('unknown_fields');
++      final action = body['action'];
++      final params = Map<String, dynamic>.from(body['params'] as Map);
++      final allowed = <String, Set<String>>{'capabilities': {}, 'status': {'operation_id'}, 'prepare': {'profile_id', 'subjects', 'expected_revision', 'operation_id'}, 'commit': {'operation_id', 'token', 'expected_revision'}, 'undo': {'operation_id'}};
++      if (!allowed.containsKey(action) || params.keys.toSet().difference(allowed[action]!).isNotEmpty || params.length != allowed[action]!.length) throw StateError('invalid_action_fields');
++      final result = switch (action) {
++        'capabilities' => await service.capabilities(),
++        'prepare' => await service.prepare(params),
++        'commit' => await service.commit(params),
++        'status' => await service.status(params['operation_id'] as String),
++        'undo' => await service.undo(params['operation_id'] as String),
++        _ => throw StateError('invalid_action'),
++      };
++      request.response.write(jsonEncode(result));
++    } catch (error) {
++      request.response.statusCode = HttpStatus.conflict;
++      request.response.write(jsonEncode({'error': bridgeErrorCode(error)}));
++    } finally {
++      await request.response.close();
++    }
++  }
++}
+--- /dev/null
++++ b/test/bridge/journal_test.dart
+@@ -0,0 +1,43 @@
++import 'package:drift/native.dart';
++import 'package:fl_clash/bridge/journal.dart';
++import 'package:fl_clash/database/database.dart';
++import 'package:fl_clash/models/models.dart';
++import 'package:flutter_test/flutter_test.dart';
++
++void main() {
++  late Database database;
++  late BridgeJournal journal;
++  setUp(() async {
++    database = Database(NativeDatabase.memory());
++    journal = BridgeJournal(database);
++    await database.customStatement('INSERT INTO profiles (id,label,url,overwrite_type,auto_update_duration_millis,auto_update,selected_map,unfold_set) VALUES (123,?,?,?,?,?,?,?)', ['fixture', '', 'standard', 0, 0, '{}', '[]']);
++  });
++  tearDown(() => database.close());
++
++  test('native rule and ownership journal share one transaction and canonical key', () async {
++    final receipt = await journal.insert(operationId: 'a' * 32, profileId: 123, content: '((PROCESS-NAME,fixture.exe),(IP-CIDR6,::/0,no-resolve))', intentHash: 'scope');
++    final id = receipt['rule_id']! as String;
++    expect(receipt['mapping_id'], '123_${id}_added');
++    expect((await database.rulesDao.queryAddedRules(123).get()).length, 1);
++    expect((await journal.find('a' * 32))!['state'], 'persisted');
++    final duplicate = await journal.insert(operationId: 'a' * 32, profileId: 123, content: '((PROCESS-NAME,fixture.exe),(IP-CIDR6,::/0,no-resolve))', intentHash: 'scope');
++    expect(duplicate['rule_id'], id);
++  });
++
++  test('external reference prevents precise undo', () async {
++    final receipt = await journal.insert(operationId: 'b' * 32, profileId: 123, content: '((DOMAIN,fixture.example),(IP-CIDR6,::/0,no-resolve))', intentHash: 'scope');
++    final id = int.parse(receipt['rule_id']! as String);
++    await database.customStatement('INSERT INTO profile_rule_mapping (id,rule_id) VALUES (?,?)', [id.toString(), id]);
++    await expectLater(journal.removeOwned('b' * 32), throwsStateError);
++    expect((await journal.ownedRows(id)).length, 2);
++  });
++
++  test('undo removes only owned row and retains unrelated native rule', () async {
++    await database.rulesDao.putProfileAddedRule(123, Rule.parse('DOMAIN,original.example,DIRECT').copyWith(order: 'a0'));
++    await journal.insert(operationId: 'c' * 32, profileId: 123, content: '((DOMAIN,fixture.example),(IP-CIDR6,::/0,no-resolve))', intentHash: 'scope');
++    await journal.removeOwned('c' * 32);
++    final remaining = await database.rulesDao.queryAddedRules(123).get();
++    expect(remaining.single.content, 'original.example');
++    expect((await journal.find('c' * 32))!['state'], 'durable_removed_runtime_pending');
++  });
++}

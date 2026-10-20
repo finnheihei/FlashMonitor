@@ -2,30 +2,99 @@ name: release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2025
+    env:
+      PYTHONUTF8: "1"
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Build exe
+      - name: Tag matches APP_VERSION
+        id: version
+        shell: pwsh
         run: |
-          python -m pip install -q pyinstaller
+          $version = python -c "from flashmonitor import APP_VERSION; print(APP_VERSION)"
+          $tag = "v$version"
+          if ("${{ github.ref_type }}" -eq 'tag' -and "${{ github.ref_name }}" -ne $tag) { throw 'Tag does not match APP_VERSION' }
+          python tools/gen_versioninfo.py --tag $tag
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "APP_VERSION=$version" >> $env:GITHUB_ENV
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+          gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName 2>$null
+          if ($LASTEXITCODE -eq 0) { 'publish=false' >> $env:GITHUB_OUTPUT }
+          else { 'publish=true' >> $env:GITHUB_OUTPUT }
+          exit 0
+      - name: Unit tests
+        if: steps.version.outputs.publish == 'true'
+        run: python -m unittest discover -s tests -v
+      - name: Frontend behavior checks
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          node tests/check_ui_attribution.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_controls.cjs
+      - name: Build exe
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          python tools/gen_versioninfo.py
+          python -m pip install -q pyinstaller==6.20.0
           python -c "from webview_win import prepare_loader_for_build; prepare_loader_for_build()"
           python -m PyInstaller --noconfirm --clean --onefile --windowed --name FlashMonitor --icon icon.ico --version-file versioninfo.txt --add-data "ui.html;." --add-data "icon.ico;." --add-binary "native/WebView2Loader.dll;." monitor.py
+      - name: Build and verify native installer
+        if: steps.version.outputs.publish == 'true'
+        shell: pwsh
+        run: |
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $compiler)) { throw 'Inno Setup 6 compiler is missing' }
+          $package = Join-Path $env:RUNNER_TEMP 'FlashMonitor-release-package'
+          New-Item -ItemType Directory -Path "$package\payload" -Force | Out-Null
+          Copy-Item -LiteralPath dist/FlashMonitor.exe -Destination "$package\payload\FlashMonitor.exe"
+          Copy-Item -LiteralPath installer/Migrate-Data.ps1 -Destination $package
+          @{version=$env:APP_VERSION} | ConvertTo-Json | Set-Content -LiteralPath "$package\package.json" -Encoding utf8
+          $smoke = Start-Process -FilePath (Resolve-Path dist/FlashMonitor.exe) -ArgumentList '--help' -WindowStyle Hidden -PassThru
+          if (-not $smoke.WaitForExit(30000)) { $smoke.Kill(); throw 'Packaged CLI smoke test timed out' }
+          if ($smoke.ExitCode -ne 0) { throw "Packaged CLI smoke test failed: $($smoke.ExitCode)" }
+          & ./installer/test_native_installer.ps1 -Compiler $compiler -PackageRoot $package
+          & $compiler "/DPackageDir=$package" "/DOutputDir=$pwd\dist" "/DAppVersion=$env:APP_VERSION" /DReleaseBuild=1 installer/FlashMonitor.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $files = @('dist/FlashMonitor.exe', "dist/FlashMonitor-$env:APP_VERSION-setup.exe")
+          $files | ForEach-Object { $h=Get-FileHash -LiteralPath $_ -Algorithm SHA256; "$($h.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($_))" } | Set-Content dist/SHA256SUMS.txt -Encoding ascii
+      - name: Preserve built packages
+        if: steps.version.outputs.publish == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlashMonitor-${{ env.APP_VERSION }}-windows-x64
+          path: |
+            dist/FlashMonitor.exe
+            dist/*-setup.exe
+            dist/SHA256SUMS.txt
       - name: Publish release
+        if: steps.version.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: Flash Monitor ${{ env.APP_VERSION }}
+          body_path: docs/release-notes-0.9.13.md
           generate_release_notes: true
           files: |
             dist/FlashMonitor.exe
-            install.ps1
-            uninstall.ps1
+            dist/*-setup.exe
+            dist/SHA256SUMS.txt

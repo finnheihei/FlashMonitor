@@ -1,0 +1,22 @@
+Flash Monitor - Windows native installer
+
+Install for the current user. Administrator privileges are not required.
+Exit any running Flash Monitor from its tray before setup or uninstall.
+Setup does not start the application, stop processes, or change network settings.
+
+Application: %LOCALAPPDATA%\FlashMonitor
+Data: %LOCALAPPDATA%\FlashMonitor\data
+Launch using the Flash Monitor Start Menu shortcut.
+Uninstall through Windows Installed Apps. Data and user-created files are retained.
+Sign-in autostart is optional and unchecked by default; an existing preference is preserved.
+
+Setup and application startup do not import another directory's data automatically.
+The migration helper defaults to Preview. Apply requires an explicit saved preview,
+confirmation, a stopped application and an empty destination. Existing histories are not merged.
+In-place conversion of legacy JSON within the selected data directory remains supported.
+
+The application requires Microsoft Edge WebView2 Runtime. Setup does not download or install it.
+This installer and application are unsigned; the publisher label is not a verified certificate.
+Do not disable security software.
+Scoped IPv6 blocking is available for compatible controllers; strict force IPv4 remains unavailable.
+A deployable direct IPv6 bridge is excluded.

@@ -6,3 +6,9 @@ dist/
 *.spec
 *.exe
 native/
+/output/
+/.planning/
+/findings.md
+/progress.md
+/task_plan.md
+/docs/screenshots/

@@ -25,6 +25,14 @@ WM_FM_FALLBACK = WM_APP + 3
 IID_IUNKNOWN = "{00000000-0000-0000-C000-000000000046}"
 IID_ENV_DONE = "{4E8A3389-C9D8-4BD2-B6B5-124FEE6CC14D}"
 IID_CTRL_DONE = "{6C4819F3-C9B7-4260-8127-C9F5BDE7F68C}"
+IID_CONTROLLER2 = "{C979903E-D4CA-4228-92EB-47EE3FA96EAB}"
+IID_SETTINGS9 = "{0528A73B-E92D-49F4-927A-E547DDDAA37D}"
+IID_WEBMSG = "{57213F19-00E6-49FA-8E07-898EA01ECBD2}"
+
+# 页面背景 #f3f5f8、边框 #e2e6ec（COLORREF 是 BGR），和 ui.html 的 --bg / --line 一致
+PAGE_BG_RGB = (0xF3, 0xF5, 0xF8)
+FRAME_BG = 0x00F8F5F3
+FRAME_LINE = 0x00ECE6E2
 
 
 class GUID(ctypes.Structure):
@@ -162,6 +170,33 @@ def com_call(obj: int, index: int, restype, argtypes, *args):
     return proto(fn_ptr)(obj, *args)
 
 
+def query_interface(obj: int, iid: str) -> int:
+    if not obj:
+        return 0
+    guid = GUID(iid)
+    out = ctypes.c_void_p()
+    hr = com_call(
+        obj,
+        0,
+        ctypes.HRESULT,
+        [ctypes.POINTER(GUID), ctypes.POINTER(ctypes.c_void_p)],
+        ctypes.byref(guid),
+        ctypes.byref(out),
+    )
+    if int(hr) < 0 or not out.value:
+        return 0
+    return int(out.value)
+
+
+def com_release(obj: int) -> None:
+    if not obj:
+        return
+    try:
+        com_call(obj, 2, wintypes.ULONG, [])
+    except Exception:
+        pass
+
+
 class ComHandler:
     """IUnknown + Invoke(HRESULT, IUnknown*) completion handler."""
 
@@ -220,6 +255,81 @@ class ComHandler:
         return 0
 
 
+class MessageHandler:
+    """ICoreWebView2WebMessageReceivedEventHandler."""
+
+    def __init__(self, callback: Callable[[str], None]) -> None:
+        self._ref = 1
+        self._iid = GUID(IID_WEBMSG)
+        self._unk = GUID(IID_IUNKNOWN)
+        self._callback = callback
+        HRESULT = ctypes.HRESULT
+        QI = ctypes.WINFUNCTYPE(HRESULT, ctypes.c_void_p, ctypes.POINTER(GUID), ctypes.POINTER(ctypes.c_void_p))(self._qi)
+        AddRef = ctypes.WINFUNCTYPE(wintypes.ULONG, ctypes.c_void_p)(self._addref)
+        Release = ctypes.WINFUNCTYPE(wintypes.ULONG, ctypes.c_void_p)(self._release)
+        Invoke = ctypes.WINFUNCTYPE(HRESULT, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)(self._invoke)
+
+        class Vtbl(ctypes.Structure):
+            _fields_ = [
+                ("QueryInterface", type(QI)),
+                ("AddRef", type(AddRef)),
+                ("Release", type(Release)),
+                ("Invoke", type(Invoke)),
+            ]
+
+        class Obj(ctypes.Structure):
+            _fields_ = [("lpVtbl", ctypes.POINTER(Vtbl))]
+
+        self._vtbl = Vtbl(QI, AddRef, Release, Invoke)
+        self._obj = Obj(ctypes.pointer(self._vtbl))
+        self._keep = (QI, AddRef, Release, Invoke, self._vtbl, self._obj)
+
+    @property
+    def pointer(self) -> int:
+        return ctypes.addressof(self._obj)
+
+    def _qi(self, this, riid, ppv):
+        iid = riid.contents
+        if _guid_eq(iid, self._unk) or _guid_eq(iid, self._iid):
+            ppv[0] = this
+            self._addref(this)
+            return 0
+        ppv[0] = None
+        return 0x80004002
+
+    def _addref(self, _this):
+        self._ref += 1
+        return self._ref
+
+    def _release(self, _this):
+        self._ref = max(0, self._ref - 1)
+        return self._ref
+
+    def _invoke(self, _this, _sender, args):
+        if not args:
+            return 0
+        raw = ctypes.c_wchar_p()
+        try:
+            hr = com_call(
+                int(args),
+                4,
+                ctypes.HRESULT,
+                [ctypes.POINTER(ctypes.c_wchar_p)],
+                ctypes.byref(raw),
+            )
+        except Exception:
+            return 0
+        if int(hr) < 0 or not raw.value:
+            return 0
+        try:
+            self._callback(raw.value)
+        except Exception:
+            return 0x80004005
+        finally:
+            ctypes.windll.ole32.CoTaskMemFree(raw)
+        return 0
+
+
 class POINT(ctypes.Structure):
     _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
 
@@ -245,7 +355,58 @@ class WINDOWPLACEMENT(ctypes.Structure):
     ]
 
 
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+
+
+def fit_window_box(w, h, x, y, work):
+    """Keep the complete restored window in a real monitor's work area."""
+    left, top, right, bottom = work
+    w, h = min(w, right-left), min(h, bottom-top)
+    return w, h, max(left, min(x, right-w)), max(top, min(y, bottom-h))
+
+
+class MARGINS(ctypes.Structure):
+    _fields_ = [
+        ("cxLeftWidth", ctypes.c_int),
+        ("cxRightWidth", ctypes.c_int),
+        ("cyTopHeight", ctypes.c_int),
+        ("cyBottomHeight", ctypes.c_int),
+    ]
+
+
+class NCCALCSIZE_PARAMS(ctypes.Structure):
+    _fields_ = [
+        ("rgrc", wintypes.RECT * 3),
+        ("lppos", ctypes.c_void_p),
+    ]
+
+
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("rcMonitor", wintypes.RECT),
+        ("rcWork", wintypes.RECT),
+        ("dwFlags", wintypes.DWORD),
+    ]
+
+
+class EventRegistrationToken(ctypes.Structure):
+    _fields_ = [("value", ctypes.c_int64)]
+
+
+class COREWEBVIEW2_COLOR(ctypes.Structure):
+    _fields_ = [
+        ("A", ctypes.c_ubyte),
+        ("R", ctypes.c_ubyte),
+        ("G", ctypes.c_ubyte),
+        ("B", ctypes.c_ubyte),
+    ]
+
+
 def prepare_process() -> None:
+    os.environ.setdefault("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "FF%02X%02X%02X" % PAGE_BG_RGB)
     try:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("finnheihei.FlashMonitor")
     except Exception:
@@ -310,7 +471,8 @@ class FlashDesktop:
         fallback: Callable[[], Any] | None = None,
         should_hide: Callable[[], bool] | None = None,
         on_first_hide: Callable[[], None] | None = None,
-        on_quit: Callable[[], None] | None = None,
+        on_quit: Callable[[], bool | None] | None = None,
+        window_class: str = "FlashMonitorWnd",
     ) -> None:
         self.title = title
         self.url = url
@@ -328,11 +490,12 @@ class FlashDesktop:
         self.shell = None
         self._using_webview = False
         self._hidden = False
+        self._page_visible = True
         self._first_hide = False
         self._dll = None
         self._handlers: list[ComHandler] = []
         self._wndproc = None
-        self._class = "FlashMonitorWnd"
+        self._class = window_class
         self._class_buf = ctypes.create_unicode_buffer(self._class)
         self._icon_small = 0
         self._icon_big = 0
@@ -417,7 +580,7 @@ class FlashDesktop:
         wc.hInstance = hinst
         wc.hIcon = self._icon_big or self._icon_small
         wc.hCursor = user32.LoadCursorW(None, ctypes.c_void_p(32512))
-        wc.hbrBackground = ctypes.windll.gdi32.CreateSolidBrush(0x00F3F3F3)
+        wc.hbrBackground = ctypes.windll.gdi32.CreateSolidBrush(FRAME_BG)
         wc.lpszClassName = self._class
         atom = user32.RegisterClassW(ctypes.byref(wc))
         if not atom and ctypes.get_last_error() not in (0, 1410):
@@ -445,6 +608,7 @@ class FlashDesktop:
             user32.SendMessageW(hwnd, 0x0080, 0, self._icon_small)
         if self._icon_big:
             user32.SendMessageW(hwnd, 0x0080, 1, self._icon_big)
+        self._apply_frame()
         return True
 
     def _load_icons(self) -> None:
@@ -470,8 +634,8 @@ class FlashDesktop:
         w, h, x, y = int(1120 * scale), int(820 * scale), CW, CW
         try:
             data = json.loads(self.placement_file.read_text(encoding="utf-8"))
-            w = max(int(800 * scale), int(data.get("w") or w))
-            h = max(int(560 * scale), int(data.get("h") or h))
+            w = max(int(960 * scale), int(data.get("w") or w))
+            h = max(int(640 * scale), int(data.get("h") or h))
             x = int(data["x"])
             y = int(data["y"])
         except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
@@ -480,10 +644,25 @@ class FlashDesktop:
             if sw > 0 and sh > 0:
                 x = max(0, (sw - w) // 2)
                 y = max(0, (sh - h) // 2)
+        user32 = ctypes.windll.user32
+        rect = wintypes.RECT(x, y, x+w, y+h)
+        user32.MonitorFromRect.argtypes = [ctypes.POINTER(wintypes.RECT), wintypes.DWORD]
+        user32.MonitorFromRect.restype = wintypes.HANDLE
+        user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(MONITORINFO)]
+        monitor = user32.MonitorFromRect(ctypes.byref(rect), 2)  # nearest monitor
+        info = MONITORINFO()
+        info.cbSize = ctypes.sizeof(info)
+        if monitor and user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+            r = info.rcWork
+            return fit_window_box(w, h, x, y, (r.left, r.top, r.right, r.bottom))
         return w, h, x, y
 
     def _save_box(self) -> None:
         if not self.hwnd:
+            return
+        # Minimized HWNDs report (-32000, -32000), not their normal position.
+        # Preserve the last normal bounds for both minimized and maximized windows.
+        if ctypes.windll.user32.IsIconic(self.hwnd) or ctypes.windll.user32.IsZoomed(self.hwnd):
             return
         rect = wintypes.RECT()
         if not ctypes.windll.user32.GetWindowRect(self.hwnd, ctypes.byref(rect)):
@@ -569,8 +748,18 @@ class FlashDesktop:
                 self._tune_settings()
             except Exception:
                 pass
+            try:
+                self._bind_messages()
+            except Exception:
+                pass
             self._resize()
-            com_call(self.webview, 5, ctypes.HRESULT, [wintypes.LPCWSTR], self.url)
+            if self._hidden or bool(self._user32.IsIconic(self.hwnd)):
+                # 启动时直接藏到托盘：_hide_window 那会儿 controller 还没建好
+                self._page_visible = True
+                self._set_page_visible(False)
+            url = self.url
+            url += ("&" if "?" in url else "?") + "desk=1"
+            com_call(self.webview, 5, ctypes.HRESULT, [wintypes.LPCWSTR], url)
         except Exception as exc:
             print(f"WebView2 setup: {exc}", file=sys.stderr)
             if self.hwnd:
@@ -583,10 +772,162 @@ class FlashDesktop:
         ptr = int(settings.value or 0)
         if not ptr:
             return
-        # put_IsStatusBarEnabled = 10, put_AreDevToolsEnabled = 12
+        # put_IsWebMessageEnabled = 6, put_IsStatusBarEnabled = 10, put_AreDevToolsEnabled = 12
+        com_call(ptr, 6, ctypes.HRESULT, [wintypes.BOOL], True)
         com_call(ptr, 10, ctypes.HRESULT, [wintypes.BOOL], False)
         com_call(ptr, 12, ctypes.HRESULT, [wintypes.BOOL], False)
-        com_call(ptr, 2, wintypes.ULONG, [])
+        s9 = query_interface(ptr, IID_SETTINGS9)
+        if s9:
+            try:
+                com_call(s9, 38, ctypes.HRESULT, [wintypes.BOOL], True)
+            except Exception:
+                pass
+            com_release(s9)
+        com_release(ptr)
+        c2 = query_interface(self.controller, IID_CONTROLLER2)
+        if c2:
+            color = COREWEBVIEW2_COLOR(255, *PAGE_BG_RGB)
+            try:
+                com_call(c2, 27, ctypes.HRESULT, [COREWEBVIEW2_COLOR], color)
+            except Exception:
+                pass
+            com_release(c2)
+
+    def _bind_messages(self) -> None:
+        if not self.webview:
+            return
+        handler = MessageHandler(self._on_web_message)
+        self._handlers.append(handler)
+        token = EventRegistrationToken()
+        com_call(
+            self.webview,
+            34,
+            ctypes.HRESULT,
+            [ctypes.c_void_p, ctypes.POINTER(EventRegistrationToken)],
+            handler.pointer,
+            ctypes.byref(token),
+        )
+
+    def _on_web_message(self, raw: str) -> None:
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            data = {"cmd": raw}
+        cmd = str(data.get("cmd") or "")
+        user32 = ctypes.windll.user32
+        if cmd == "ready":
+            self._sync_chrome()
+        elif cmd == "min" and self.hwnd:
+            user32.ShowWindow(self.hwnd, 6)
+        elif cmd == "max":
+            self._toggle_max()
+        elif cmd == "close" and self.hwnd:
+            user32.PostMessageW(self.hwnd, 0x0010, 0, 0)
+        elif cmd == "drag" and self.hwnd:
+            user32.ReleaseCapture()
+            user32.SendMessageW(self.hwnd, 0x00A1, 2, 0)
+
+    def _toggle_max(self) -> None:
+        if not self.hwnd:
+            return
+        user32 = ctypes.windll.user32
+        if user32.IsZoomed(self.hwnd):
+            user32.ShowWindow(self.hwnd, 9)
+        else:
+            user32.ShowWindow(self.hwnd, 3)
+
+    def _post_json(self, payload: dict[str, Any]) -> None:
+        if not self.webview:
+            return
+        try:
+            com_call(self.webview, 32, ctypes.HRESULT, [wintypes.LPCWSTR], json.dumps(payload))
+        except Exception:
+            pass
+
+    def _set_page_visible(self, visible: bool) -> None:
+        """藏到托盘 / 最小化时把 WebView 设为不可见（省 CPU），并告诉页面停掉轮询。"""
+        if self.controller:
+            try:
+                com_call(self.controller, 4, ctypes.HRESULT, [wintypes.BOOL], bool(visible))
+            except Exception:
+                pass
+        if self._page_visible is not visible:
+            self._page_visible = visible
+            self._post_json({"visible": visible})
+
+    def _sync_chrome(self) -> None:
+        if not self.webview or not self.hwnd:
+            return
+        mx = bool(ctypes.windll.user32.IsZoomed(self.hwnd))
+        self._post_json({"maximized": mx, "visible": bool(self._page_visible)})
+
+    def _apply_frame(self) -> None:
+        if not self.hwnd:
+            return
+        dwmapi = ctypes.WinDLL("dwmapi")
+        hwnd = self.hwnd
+        try:
+            pref = ctypes.c_int(2)
+            dwmapi.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(pref), 4)
+        except Exception:
+            pass
+        try:
+            border = ctypes.c_uint(FRAME_LINE)
+            dwmapi.DwmSetWindowAttribute(hwnd, 34, ctypes.byref(border), 4)
+            caption = ctypes.c_uint(FRAME_BG)
+            dwmapi.DwmSetWindowAttribute(hwnd, 35, ctypes.byref(caption), 4)
+        except Exception:
+            pass
+        try:
+            margins = MARGINS(0, 0, 1, 0)
+            dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(margins))
+        except Exception:
+            pass
+
+    def _frame_px(self, hwnd: int) -> int:
+        user32 = self._user32
+        try:
+            user32.GetDpiForWindow.argtypes = [wintypes.HWND]
+            user32.GetDpiForWindow.restype = wintypes.UINT
+            dpi = int(user32.GetDpiForWindow(hwnd) or 96)
+            user32.GetSystemMetricsForDpi.argtypes = [ctypes.c_int, wintypes.UINT]
+            user32.GetSystemMetricsForDpi.restype = ctypes.c_int
+            return max(1, int(user32.GetSystemMetricsForDpi(32, dpi) + user32.GetSystemMetricsForDpi(92, dpi)))
+        except Exception:
+            return max(8, int(8 * dpi_scale()))
+
+    def _nccalcsize(self, hwnd: int, wparam: int, lparam: int) -> int:
+        frame = self._frame_px(hwnd)
+        if wparam:
+            params = ctypes.cast(lparam, ctypes.POINTER(NCCALCSIZE_PARAMS)).contents
+            r = params.rgrc[0]
+            if self._user32.IsZoomed(hwnd):
+                mi = MONITORINFO()
+                mi.cbSize = ctypes.sizeof(MONITORINFO)
+                try:
+                    user32 = self._user32
+                    user32.MonitorFromWindow.restype = wintypes.HANDLE
+                    user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+                    user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(MONITORINFO)]
+                    user32.GetMonitorInfoW.restype = wintypes.BOOL
+                    mon = user32.MonitorFromWindow(hwnd, 2)
+                    if mon and user32.GetMonitorInfoW(mon, ctypes.byref(mi)):
+                        r.left = mi.rcWork.left
+                        r.top = mi.rcWork.top
+                        r.right = mi.rcWork.right
+                        r.bottom = mi.rcWork.bottom
+                        return 0
+                except Exception:
+                    pass
+            r.left += frame
+            r.right -= frame
+            r.bottom -= frame
+            return 0
+        rect = ctypes.cast(lparam, ctypes.POINTER(wintypes.RECT)).contents
+        rect.left += frame
+        rect.right -= frame
+        rect.bottom -= frame
+        return 0
 
     def _resize(self) -> None:
         if not self.controller or not self.hwnd:
@@ -613,7 +954,7 @@ class FlashDesktop:
             ctypes.windll.user32.ShowWindow(self.hwnd, 1)  # SW_SHOWNORMAL
             ctypes.windll.user32.SetForegroundWindow(self.hwnd)
             if self.controller:
-                com_call(self.controller, 4, ctypes.HRESULT, [wintypes.BOOL], True)
+                self._set_page_visible(True)
                 self._resize()
             return
         self.shell.show()
@@ -623,11 +964,7 @@ class FlashDesktop:
         self._hidden = True
         if self.hwnd:
             ctypes.windll.user32.ShowWindow(self.hwnd, 0)
-        if self.controller:
-            try:
-                com_call(self.controller, 4, ctypes.HRESULT, [wintypes.BOOL], False)
-            except Exception:
-                pass
+        self._set_page_visible(False)
         if self.shell is not None:
             import ctypes as ct
 
@@ -670,6 +1007,14 @@ class FlashDesktop:
         self._using_webview = False
 
     def _quit(self) -> None:
+        if self.on_quit:
+            try:
+                if self.on_quit() is False:
+                    return
+            except Exception as exc:
+                if sys.stderr is not None:
+                    print('退出未完成：'+str(exc), file=sys.stderr)
+                return
         self._save_box()
         self._teardown_webview()
         if self.shell is not None:
@@ -678,11 +1023,6 @@ class FlashDesktop:
             except Exception:
                 pass
             self.shell = None
-        if self.on_quit:
-            try:
-                self.on_quit()
-            except Exception:
-                pass
         if self.hwnd:
             ctypes.windll.user32.DestroyWindow(self.hwnd)
             self.hwnd = 0
@@ -696,6 +1036,15 @@ class FlashDesktop:
         WM_DESTROY = 0x0002
         WM_GETMINMAXINFO = 0x0024
         WM_WINDOWPOSCHANGED = 0x0047
+        WM_NCCALCSIZE = 0x0083
+        WM_ACTIVATE = 0x0006
+        WM_NCACTIVATE = 0x0086
+        if msg == WM_NCCALCSIZE:
+            return self._nccalcsize(hwnd, wparam, lparam)
+        if msg == WM_NCACTIVATE:
+            return int(user32.DefWindowProcW(hwnd, msg, wparam, -1))
+        if msg == WM_ACTIVATE:
+            self._apply_frame()
         if msg == WM_SIZE or msg == WM_WINDOWPOSCHANGED:
             self._resize()
             if self.controller:
@@ -703,6 +1052,12 @@ class FlashDesktop:
                     com_call(self.controller, 23, ctypes.HRESULT, [])
                 except Exception:
                     pass
+            if msg == WM_SIZE:
+                if wparam == 1:  # SIZE_MINIMIZED
+                    self._set_page_visible(False)
+                elif wparam in (0, 2) and not self._hidden:  # SIZE_RESTORED / SIZE_MAXIMIZED
+                    self._set_page_visible(True)
+                self._sync_chrome()
         elif msg == WM_MOVE:
             if self.controller:
                 try:
@@ -712,8 +1067,8 @@ class FlashDesktop:
         elif msg == WM_GETMINMAXINFO:
             info = ctypes.cast(lparam, ctypes.POINTER(MINMAXINFO)).contents
             scale = dpi_scale()
-            info.ptMinTrackSize.x = int(800 * scale)
-            info.ptMinTrackSize.y = int(560 * scale)
+            info.ptMinTrackSize.x = int(960 * scale)
+            info.ptMinTrackSize.y = int(640 * scale)
             return 0
         elif msg == WM_CLOSE:
             hide = True if self.should_hide is None else bool(self.should_hide())
