@@ -19,6 +19,14 @@ $runNo=0
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 function Assert($value,[string]$message){if(-not $value){throw $message}}
 function Digest([string]$path){return (Get-FileHash -LiteralPath $path).Hash.ToLowerInvariant()}
+function TestUninstaller {
+    # Inno Setup may choose another uninsNNN name after a rapid reinstall.
+    $registered=([string](Get-ItemProperty -LiteralPath $arp).UninstallString).Trim('"')
+    Assert ([IO.Path]::GetDirectoryName($registered) -eq $app) 'Uninstaller escaped isolated test directory'
+    Assert ([IO.Path]::GetFileName($registered) -match '^unins\d+\.exe$') 'Unexpected registered uninstaller name'
+    Assert (Test-Path -LiteralPath $registered -PathType Leaf) ('Registered uninstaller is missing: '+$registered)
+    return $registered
+}
 function RealState {
     $state=[ordered]@{}
     $paths=@('HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\FlashMonitor_is1','HKCU:\Software\Microsoft\Windows\CurrentVersion\Run')
@@ -110,7 +118,7 @@ try {
     Assert ((Digest $exe) -eq $expected) 'Downgrade changed payload'
     $passed.Add('native_downgrade_refused')
 
-    $uninstall=Join-Path $app 'unins000.exe'
+    $uninstall=TestUninstaller
     $created=$false;$held=New-Object Threading.Mutex($true,('Local\'+$id),[ref]$created)
     try{RunSetup $uninstall @() $false}finally{$held.ReleaseMutex();$held.Dispose()}
     Assert (Test-Path -LiteralPath $exe) 'Blocked uninstall removed payload'
@@ -132,7 +140,7 @@ try {
     New-Item -Path $testRun -Force | Out-Null
     $externalRun='"C:\SyntheticExternalOwner\other.exe"'
     New-ItemProperty -LiteralPath $testRun -Name FlashMonitor -Value $externalRun -PropertyType String -Force | Out-Null
-    RunSetup (Join-Path $app 'unins000.exe')
+    RunSetup (TestUninstaller)
     Assert (-not(Test-Path -LiteralPath $arp)) 'Final uninstall registration retained'
     Assert (-not(Test-Path -LiteralPath $exe)) 'Final uninstall retained app'
     Assert (-not(Test-Path -LiteralPath (Join-Path $root 'StartMenu\Flash Monitor.lnk'))) 'Final shortcut retained'
