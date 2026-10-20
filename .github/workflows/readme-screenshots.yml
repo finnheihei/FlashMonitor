@@ -1,0 +1,36 @@
+name: Capture README screenshots
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - tools/capture_readme.py
+      - .github/workflows/readme-screenshots.yml
+permissions:
+  contents: write
+jobs:
+  capture:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install playwright==1.58.0
+      - run: python tools/capture_readme.py --channel msedge
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: readme-screenshots
+          path: docs/media/screenshots/*.png
+      - name: Commit screenshots
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/media/screenshots/*.png
+          if ! git diff --cached --quiet; then
+            git commit -m "docs: add real UI screenshots with demo data"
+            git push
+          fi
