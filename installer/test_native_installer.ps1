@@ -5,7 +5,10 @@ param(
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version 2
-$root=Join-Path $env:TEMP ('fm-installer-test-native-'+[guid]::NewGuid().ToString('N'))
+# Shell shortcuts expand Windows 8.3 aliases; use that same canonical test root.
+$tempBase=& python -B -c 'import os; print(os.path.realpath(os.environ["TEMP"]))'
+if($LASTEXITCODE -ne 0 -or -not $tempBase){throw 'Cannot resolve installer test directory'}
+$root=Join-Path $tempBase ('fm-installer-test-native-'+[guid]::NewGuid().ToString('N'))
 $id='FlashMonitorTest'+[guid]::NewGuid().ToString('N')
 $app=Join-Path $root 'FlashMonitor'
 $output=Join-Path $root 'build'
@@ -83,7 +86,8 @@ try {
     Assert ((Get-ItemProperty -LiteralPath $arp).InstallLocation.TrimEnd('\') -eq $app) 'Uninstall location mismatch'
     Assert (-not(Test-Path -LiteralPath $testRun)) 'Autostart was enabled by default'
     $ws=New-Object -ComObject WScript.Shell
-    Assert ($ws.CreateShortcut((Join-Path $root 'StartMenu\Flash Monitor.lnk')).TargetPath -eq $exe) 'Start Menu target mismatch'
+    $shortcutTarget=$ws.CreateShortcut((Join-Path $root 'StartMenu\Flash Monitor.lnk')).TargetPath
+    Assert ($shortcutTarget -eq $exe) ('Start Menu target mismatch: expected '+$exe+', found '+$shortcutTarget)
     $passed.Add('native_install_payload_shortcut_uninstall_registration_no_default_autostart')
 
     $data=Join-Path $app 'data';New-Item -ItemType Directory -Path $data -Force | Out-Null
