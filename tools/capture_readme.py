@@ -1,5 +1,5 @@
 """Capture the unchanged production UI with synthetic, fully intercepted API data."""
-import argparse, asyncio, copy, json, time
+import argparse, asyncio, copy, time
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from playwright.async_api import async_playwright
