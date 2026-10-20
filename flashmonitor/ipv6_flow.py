@@ -8,7 +8,9 @@ from .ipv6_native import canonical_rule, canonical_runtime, document_rules
 from .rule_drafts import DraftError
 
 
-def root_key(value):return os.path.normcase(os.path.abspath(str(value)))
+def root_key(value):
+    # Match NativeVerifier's resolved root, including Windows 8.3 path aliases.
+    return os.path.normcase(os.path.realpath(str(value)))
 
 
 class IPv6Flow:
