@@ -14,6 +14,7 @@ function source(name) {
   return end < 0 ? tail : tail.slice(0, end + 1);
 }
 const context = vm.createContext({
+  tr:require('./ui_locale.cjs').translator(process.env.FM_TEST_LANGUAGE || 'zh-CN'),UI_LOCALE:'en-US',
   console, period:'today', rankMode:'program',trafficScope:'proxy',rankSort:{key:null,direction:'desc'},processScope:'',
   homeScope:'all',query:()=>'',hit:()=>true,isIgnored:()=>false,isPinned:()=>false,
   arrangeRows:rows=>rows,labelOf:(p,title)=>title || p,iconImg:()=>'',SVG_CHEV:'',

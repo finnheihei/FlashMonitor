@@ -50,6 +50,13 @@ jobs:
           node tests/check_ui_attribution.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/check_ui_controls.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_i18n.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:FM_TEST_LANGUAGE = 'en'
+          node tests/check_ui_attribution.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_controls.cjs
       - name: Build exe
         if: steps.version.outputs.publish == 'true'
         run: |

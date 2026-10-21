@@ -3,6 +3,8 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const path=require('node:path');
+const testLanguage=process.env.FM_TEST_LANGUAGE || 'zh-CN';
+const translate=require('./ui_locale.cjs').translator(testLanguage);
 const script=fs.readFileSync(path.join(__dirname,'..','ui.html'),'utf8').split('<script>')[1].split('</script>')[0];
 new vm.Script(script);
 function source(name) {
@@ -15,6 +17,7 @@ const calls=[],toasts=[];
 let stale=false;
 const q={value:'browser'},body={scrollTop:80};
 const context=vm.createContext({
+  tr:translate,UI_LOCALE:testLanguage==='en'?'en-US':'zh-CN',
   console,URLSearchParams,Math,Set,Map,closingIds:new Set(),failedIconUrls:new Set(),
   last:{status:{clash_api:true},flows:[],ts:30},staleData:()=>stale,
   render:()=>{},tick:()=>{},flashToast:text=>toasts.push(text),
@@ -40,7 +43,7 @@ const run=code=>vm.runInContext(code,context);
   assert.equal(run("programIconUrl('worker')"),'');
   assert.equal(run("connectionIds([{ids:['a','b','a']},{id:'c'},{id:'x',path:'leak'},{ids:[],id:'b'},{id:'bad,id'},{id:4}]).join(',')"),'a,b,c');
   assert.ok(run("disconnectButton([{path:'leak',id:'x'}])").includes('disabled'));
-  assert.ok(run("disconnectButton([{id:'a'}])").includes('断开连接 · 1'));
+  assert.ok(run("disconnectButton([{id:'a'}])").includes(translate('断开连接')+' · 1'));
   stale=true;await run("closeConnections(['a'])");assert.equal(calls.length,0);stale=false;
   context.last.status.clash_api=false;await run("closeConnections(['a'])");assert.equal(calls.length,0);context.last.status.clash_api=true;
   await run('closeConnections([])');assert.equal(calls.length,0);
@@ -48,11 +51,11 @@ const run=code=>vm.runInContext(code,context);
   await run("closeConnections(['a','a','b'])");assert.deepEqual(calls.pop().ids,['a','b']);assert.equal(context.closingIds.size,0);
   context.ids=Array.from({length:405},(_,i)=>'id-'+i);await run('closeConnections(ids)');
   assert.deepEqual(calls.splice(0).map(c=>c.ids.length),[200,200,5]);
-  assert.equal(toasts.at(-1),'已断开 405 条连接');
+  assert.equal(toasts.at(-1),translate`已断开 ${405} 条连接`);
   let request=0;
   context.api=async()=>{if(++request===2)throw new Error('timeout');return {closed:198};};
   await run('closeConnections(ids)');
-  assert.equal(toasts.at(-1),'已断开 198/405 条，其余断开失败：timeout');
+  assert.equal(toasts.at(-1),translate`已断开 ${198}/${405} 条，其余断开失败：${'timeout'}`);
   assert.equal(context.closingIds.size,0);
   let release;
   context.api=()=>new Promise(resolve=>{release=resolve;});

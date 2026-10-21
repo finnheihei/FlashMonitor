@@ -6,7 +6,8 @@ from playwright.async_api import async_playwright
 ROOT=Path(__file__).resolve().parents[1]
 
 class Fixture:
-    def __init__(self):
+    def __init__(self, language):
+        self.language = language
         self.settings=dict(version="0.9.13",last_period="today",ignored=[],pinned=[],show_airport=True,close_to_tray=True,license="MIT")
     def snapshot(self, view: str, period: str) -> dict:
         programs = [("msedge", "Edge", 1800000, 320000), ("steam", "Steam", 0, 8200000), ("Code", "Visual Studio Code", 450000, 0), ("Discord", "Discord", 180000, 0), ("OneDrive", "OneDrive", 0, 120000)]
@@ -21,7 +22,7 @@ class Fixture:
                     continue
                 host = name+"."+lane+".example.com"
                 flows.append(dict(process=name, title=title, rule_exe=name+".exe", host=host, remote=host+":443", path=lane, outbound=lane,
-                                  note="模拟规则", node="Demo node" if lane=="proxy" else "", n=2,
+                                  note="Demo rule" if self.language == "en" else "模拟规则", node="Demo node" if lane=="proxy" else "", n=2,
                                   ids=[name+lane+"1", name+lane+"2"], upload=0, download=amount))
                 sites.append(dict(site=host, upload=0, download=amount*factor,
                                   proxy_down=amount*factor if lane=="proxy" else 0, proxy_up=0,
@@ -30,7 +31,7 @@ class Fixture:
                              proxy_down=proxy*factor,proxy_up=0,direct_down=direct*factor,direct_up=0,
                              sites=sites,sites_period=period,sites_since=int(time.time())-86400))
         flows.append(dict(process="BackupHelper",title="Backup Helper",remote="backup.example.com:443",
-                          path="leak",outbound="direct",note="模拟绕过 TUN",n=4,ids=[],download=0,upload=0))
+                          path="leak",outbound="direct",note="Demo TUN bypass" if self.language == "en" else "模拟绕过 TUN",n=4,ids=[],download=0,upload=0))
         total = sum(r["download"] for r in rows)
         proxy = sum(r["proxy_down"] for r in rows)
         pack = dict(rows=rows,download=total,upload=0,proxy_download=proxy,proxy_upload=0,
@@ -84,13 +85,14 @@ class Fixture:
             return await route.fulfill(status=404,json={})
         await route.fulfill(json=data)
 
-async def main(output,channel):
+async def main(output,channel,language):
     output.mkdir(parents=True,exist_ok=True)
     errors=[]
     async with async_playwright() as p:
         browser=await p.chromium.launch(**({"channel":channel} if channel else {}),headless=True)
-        context=await browser.new_context(viewport=dict(width=1280,height=820),device_scale_factor=1,locale="zh-CN",service_workers="block",reduced_motion="reduce")
-        await context.route("**/*",Fixture().route)
+        context=await browser.new_context(viewport=dict(width=1280,height=820),device_scale_factor=1,locale="en-US" if language == "en" else "zh-CN",service_workers="block",reduced_motion="reduce")
+        await context.add_init_script("if (!localStorage.getItem('flashmonitor.ui.language')) localStorage.setItem('flashmonitor.ui.language', '" + language + "');")
+        await context.route("**/*",Fixture(language).route)
         page=await context.new_page()
         page.on("pageerror",lambda e:errors.append(str(e)))
         async def shot(name):
@@ -98,6 +100,15 @@ async def main(output,channel):
             await page.wait_for_timeout(350)
             await page.screenshot(path=str(output/name))
         await page.goto("http://127.0.0.1:18799/?desk=1")
+        await page.wait_for_selector("[data-program=msedge]")
+        assert await page.locator("html").get_attribute("lang") == language
+        # Exercise the actual switch twice and verify persistence after reload.
+        other = "zh-CN" if language == "en" else "en"
+        await page.locator("#btn-language").click()
+        await page.wait_for_function("document.documentElement.lang === '" + other + "'")
+        await page.wait_for_selector("[data-program=msedge]")
+        await page.locator("#btn-language").click()
+        await page.wait_for_function("document.documentElement.lang === '" + language + "'")
         await page.wait_for_selector("[data-program=msedge]")
         await shot("01-live.png")
         await page.locator("[data-program=msedge]").click()
@@ -128,5 +139,6 @@ if __name__=="__main__":
     parser=argparse.ArgumentParser()
     parser.add_argument("--output",type=Path,default=ROOT/"docs/media/screenshots")
     parser.add_argument("--channel",default="")
+    parser.add_argument("--language",choices=["en", "zh-CN"],default="en")
     args=parser.parse_args()
-    asyncio.run(main(args.output,args.channel))
+    asyncio.run(main(args.output,args.channel,args.language))

@@ -6,6 +6,7 @@ on:
     paths:
       - tools/capture_readme.py
       - .github/workflows/readme-screenshots.yml
+      - ui.html
 permissions:
   contents: write
 jobs:
@@ -18,18 +19,19 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install playwright==1.58.0
-      - run: python tools/capture_readme.py --channel msedge
+      - run: python tools/capture_readme.py --channel msedge --language en --output docs/media/screenshots/en
+      - run: python tools/capture_readme.py --channel msedge --language zh-CN --output docs/media/screenshots/zh-CN
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: readme-screenshots
-          path: docs/media/screenshots/*.png
+          path: docs/media/screenshots/**/*.png
       - name: Commit screenshots
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/media/screenshots/*.png
+          git add docs/media/screenshots/en docs/media/screenshots/zh-CN
           if ! git diff --cached --quiet; then
             git commit -m "docs: add real UI screenshots with demo data"
             git push
