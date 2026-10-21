@@ -4,11 +4,11 @@
 
 ## 一句话介绍
 
-面向 FlClash / mihomo 用户的本机流量监视工具：网络状态明细、累计代理流量计数与按需 IPv6 屏蔽。
+查看程序与网站连接状态明细，统计累计代理流量，支持按应用或网站屏蔽 IPv6。
 
 ## 六组真实截图
 
-六组共 7 张截图已生成并用于首页（程序展开与 IPv6 弹窗分别截图），均为原版界面与演示数据。图片位于 [screenshots](media/screenshots)，可通过 `tools/capture_readme.py` 与仓库的 Capture README screenshots 工作流重新生成。
+六组共 7 张截图已生成并用于首页（程序展开与 IPv6 弹窗分别截图），均为原版界面与演示数据。英文图片位于 [en](media/screenshots/en)，中文图片位于 [zh-CN](media/screenshots/zh-CN)，可通过 `tools/capture_readme.py` 与仓库的 Capture README screenshots 工作流重新生成。
 
 | 序号 | 标题 | 配套说明 | 取景重点 | 替代文本 |
 | --- | --- | --- | --- | --- |
@@ -54,3 +54,12 @@ Flash Monitor：面向 FlClash / mihomo 的 Windows 本机流量监视器。查�
 | IPv6 入口 | 应用或网站 → 连接设置 → 屏蔽 IPv6；通用入口可选择对象 | [IPv6 执行说明](scoped-ipv6.md) |
 | IPv6 兼容范围 | 当前要求可核实的 FlClash schema 3、本机 IP 控制器、rule 模式 Meta 内核；应用范围需 strict / always 进程识别 | 不能宣传为所有 mihomo 客户端均支持局部屏蔽 |
 | 截图 | 已生成六组共 7 张真实 UI 截图，首页旧示意图已全部替换 | 所有图片均注明演示数据；截图用于展示界面，不代表真实网络端到端验收 |
+
+## 双语截图重建
+
+工作流分别运行 `--language en` 与 `--language zh-CN`，每种语言生成 7 张截图。使用真实 `ui.html` 与隔离的演示 API；不会启动真实后端。脚本点击语言按钮验证双向切换，检查页面语言和 JavaScript 错误。英文首页引用英文图，中文首页引用中文图。
+
+```powershell
+python tools/capture_readme.py --channel msedge --language en --output docs/media/screenshots/en
+python tools/capture_readme.py --channel msedge --language zh-CN --output docs/media/screenshots/zh-CN
+```

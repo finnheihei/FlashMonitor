@@ -1,126 +1,101 @@
 # Flash Monitor
 
-**面向 FlClash / mihomo 用户的本机流量监视工具：网络状态明细、累计代理流量计数与按需 IPv6 屏蔽。**
+**Inspect app and website connections, track cumulative proxy traffic, and block IPv6 for selected apps or websites.**
 
-当前版本：`v0.9.13`（正在为 `1.0` 做准备） · 平台：Windows
+**English** · [简体中文](README.zh-CN.md)
 
-[下载 Windows 安装包](https://github.com/finnheihei/FlashMonitor/releases/latest) · [所有版本](https://github.com/finnheihei/FlashMonitor/releases) · [使用说明](docs/usage-guide.md)
+A local traffic monitor for FlClash / Clash Meta (mihomo) on Windows, supporting TUN and system proxy setups.
 
-使用 FlClash 或 mihomo 时，你可能想知道：
+[Download Windows installer](https://github.com/finnheihei/FlashMonitor/releases/download/v0.9.13/FlashMonitor-0.9.13-setup.exe) · [All releases](https://github.com/finnheihei/FlashMonitor/releases) · [User guide (Chinese)](docs/usage-guide.md)
 
-- **连接去了哪里？** 同一个程序中，哪些网站走代理、哪些走直连？是否检测到绕过 TUN 的连接？
-- **谁消耗了代理额度？** 今天、近几天或历史累计中，哪个程序、网站、节点的代理用量最多？
-- **能否局部屏蔽 IPv6？** 遇到 IPv6 分流问题时，能否只处理指定应用或网站，而不关闭系统全局 IPv6？
+Is an app using a proxy or connecting directly? Which websites consume your proxy traffic? Which app is visiting a particular website? Flash Monitor connects these details so you can follow the traffic from app to website to route.
 
-Flash Monitor 运行于 Windows 本机，通过内核外部控制器获取连接与流量信息，支持 **TUN 与系统代理场景**。它是流量与连接监视工具，不是代理客户端。
+![Live connections](docs/media/screenshots/en/01-live.png)
 
-## 界面与功能预览
+Real application UI captured on Windows / Edge with demo data; no real proxy service was connected.
 
-> 以下均为 **真实界面截图，数据为演示数据**。使用仓库原版界面在隔离的 Windows / Edge 环境中截取，未连接真实代理服务；程序、网站、节点和流量仅用于展示功能。
+## See where connections go
 
-![Flash Monitor 实时连接首页，展示程序连接状态、代理筛选与绕过 TUN 提示](docs/media/screenshots/01-live.png)
+Switch between **Apps** and **Websites** on the Live page. Check upload and download rates, distinguish proxy, direct, mixed and unknown routes, or filter for apps using a proxy.
 
-*实时网络状态明细：查看活跃程序的连接去向。真实界面截图，数据为演示数据。*
+Expand an app to see the websites it visits. Switch to websites to find the apps connecting to the same destination. Detected connections bypassing TUN have a notice and a details entry.
 
-## 核心功能
+![App website details](docs/media/screenshots/en/02-program.png)
 
-### 1. 网络状态明细与双向追踪
+## Find where your proxy traffic goes
 
-按程序或网站查看当前连接去向，定位程序内部的流量来源：
+Usage opens with **today's proxy usage first**. Proxy and direct traffic are shown separately for apps and websites, so a large direct download does not look like proxy consumption.
 
-- **四种状态**：区分代理、直连、混合、未知；无法确认的连接不会被当作直连。
-- **代理连接筛选**：只查看包含确定代理连接的程序，包含同时存在代理与直连的混合状态程序。
-- **程序与网站双向展开**：展开程序查看其访问的网站；从网站反查关联的本地程序。
-- **绕过 TUN 提示**：对检测到的绕过连接提供提示与明细入口，不承诺识别全部绕过行为。
-- **连接明细与管理**：查看远端地址、当前出站、所选节点，断开单条连接或按程序、网站批量断开内核连接；操作失败或部分成功时显示反馈。
+- **Three dimensions:** apps, websites and nodes; the node view shows traffic through each node.
+- **Five periods:** last hour, today, last 7 days, last 30 days and all time.
+- **Further analysis:** search, sort, expand details and export CSV.
 
-![Flash Monitor 展开程序的网站明细，展示代理、直连与批量断开入口](docs/media/screenshots/02-program.png)
+![App usage ranking](docs/media/screenshots/en/04-usage.png)
 
-*展开程序查看正在访问的网站与连接状态；程序范围提供批量断开入口。真实界面截图，数据为演示数据。*
+Expand an app to inspect its website usage, or expand a website to see the associated apps. Historical details respect the selected period; the interface explains when coverage is incomplete.
 
-![Flash Monitor 连接明细界面，显示远端、出站、节点与单条断开入口](docs/media/screenshots/03-connections.png)
+![Website usage and associated apps](docs/media/screenshots/en/05-sites.png)
 
-*查看单条连接的远端、出站与节点。真实界面截图，数据为演示数据。断开仅针对内核提供连接 ID 的连接；程序可能自动重连。*
+## Inspect and disconnect connections
 
-### 2. 累计代理流量计数与多维排行
+View the remote address, outbound and node. Disconnect a single connection or a group belonging to an app or website. Results distinguish successful and failed requests.
 
-默认显示**今天的代理流量排行**，帮助找出主要用量来源。
+Disconnection requires connection IDs provided by the proxy core. Connections bypassing the core cannot be disconnected here. Apps may reconnect automatically; disconnecting does not permanently block network access.
 
-| 统计选项 | 支持范围 |
-| --- | --- |
-| 时间跨度 | 近 1 小时、今天、近 7 天、近 30 天、累计 |
-| 排行维度 | 程序、网站、节点 |
-| 用量分类 | 代理与直连分列展示 |
-| 进一步分析 | 按用量排序、展开关联明细、导出 CSV |
+![Connection details](docs/media/screenshots/en/03-connections.png)
 
-![Flash Monitor 程序用量排行，展示时间跨度、代理与直连用量及 CSV 导出](docs/media/screenshots/04-usage.png)
+## Block IPv6 for selected apps or websites
 
-*累计代理流量统计排行。真实界面截图，数据为演示数据。*
+Open **Connection settings** from an app or website's `⋯` menu and toggle **Block IPv6** for that scope, without disabling IPv6 globally on Windows or a network adapter.
 
-![Flash Monitor 网站维度用量排行及展开后的关联程序明细](docs/media/screenshots/05-sites.png)
+This restricts new connections whose IPv6 destinations are identified by the core. It does not guarantee IPv4 fallback or control traffic bypassing the core. Current requirements include a verifiable FlClash configuration, a local controller and a Meta core in rule mode; app scopes also require strict / always process identification. See [IPv6 scope and limitations (Chinese)](docs/scoped-ipv6.md).
 
-*从网站排行展开，确认关联的本地程序。真实界面截图，数据为演示数据。*
+![IPv6](docs/media/screenshots/en/02-ipv6.png)
 
-*CSV 导出当前显示的统计结果，数值单位为字节。程序与网站的分时交叉明细最多保留 7 天；更长时段的汇总不代表拥有完整的逐项交叉明细。*
+## Built for everyday use
 
-### 3. 按应用或网站屏蔽 IPv6
+- **List and bubble views:** the bubble view shows the top 12 active apps. Use Back to list or press `Esc` to return.
+- **App icons:** native icons when available, stable generic icons otherwise.
+- **Tray collection:** closing the window keeps collection running by default. Opening the app again brings back the existing window.
+- **Local records:** usage is stored locally; the service listens only on `127.0.0.1`.
 
-在应用或网站的 **连接设置** 中打开「屏蔽 IPv6」，关闭开关即可恢复；通用入口可选择应用或输入域名。支持网站精确匹配、包含子域名，以及某应用中的指定网站。
+![Bubble view](docs/media/screenshots/en/06-balls.png)
 
-- 仅限制**内核识别到的 IPv6 目标新连接**，IPv4 沿用原代理或直连路线；已有连接不会主动断开。
-- 不修改系统或网卡的全局 IPv6 开关，不保证应用自动回退 IPv4，也不控制代理远端解析的出口地址族。
-- 当前执行路径要求可核实的 **FlClash schema 3 配置、本机 IP 控制器和 rule 模式的 Meta 内核**；应用范围还需要 strict / always 进程识别。监视功能支持的接入场景不代表 IPv6 屏蔽支持所有客户端组合。
-- 开启、撤销与恢复维护可能重载内核，短暂影响网络；关闭到托盘继续维护，完全退出后不再维护。
+## Install and connect
 
-兼容条件、配置核实与恢复机制见 [IPv6 范围与限制](docs/scoped-ipv6.md)。这是一项辅助控制功能，不等同于严格强制 IPv4。
+1. Download `FlashMonitor-0.9.13-setup.exe` from [Releases](https://github.com/finnheihei/FlashMonitor/releases/latest) and run it. No Python installation is needed. Exit the old Monitor from the tray before upgrading.
+2. Install Microsoft Edge WebView2 Runtime if needed and enable **External Controller** in your Clash / mihomo client.
+3. Open Monitor and enter the controller address and secret under Settings → Connection.
 
-![Flash Monitor 应用连接设置，显示屏蔽 IPv6 开关](docs/media/screenshots/02-ipv6.png)
+The installer defaults to `%LOCALAPPDATA%\FlashMonitor`, creates a Start menu shortcut and normally does not require administrator privileges. Uninstalling retains historical traffic records by default. See [installation and data migration (Chinese)](docs/windows-installer.md).
 
-*从应用进入连接设置，直接查看该对象的 IPv6 屏蔽开关。真实界面截图，数据为演示数据。*
+Releases also include a standalone `FlashMonitor.exe` and `SHA256SUMS.txt`. Builds are currently unsigned.
 
-### 4. 日常运行与视图体验
+## Interface language
 
-- **列表与小球视图**：小球展示前 12 个活跃程序，可通过「返回列表」或 `Esc` 返回。
-- **单实例与托盘采集**：再次打开会唤起已有窗口；关闭窗口默认进入托盘继续采集，彻底退出使用托盘菜单。
-- **程序图标**：优先显示原生图标，无法获取时分配稳定的通用图标。
-- **本机存储**：流量记录保存在本机数据库，后台服务仅监听 `127.0.0.1`。
+The current source version defaults to English. Use **中文** in the top bar to switch to Chinese, or **English** to switch back. The preference is saved in the local browser / WebView profile. Switching reloads the interface and restores the current page, search, filters and expanded rows. Unsaved form input is not retained; a prompt appears before switching from settings or an open dialog.
 
-![Flash Monitor 小球视图，展示活跃程序、连接去向与返回列表入口](docs/media/screenshots/06-balls.png)
+App-provided names, domains, paths, rules and controller diagnostics retain their original text. Native tray messages are not part of this interface translation. The published v0.9.13 installer predates this language feature; a new installer has not yet been released.
 
-*小球视图最多展示前 12 个活跃程序；图中按实际演示数量显示。可点击返回列表或按 Esc 返回。真实界面截图，数据为演示数据。*
+## Accounting and coverage
 
-## 安装与接入
+- Proxy usage covers connections observed by Clash / mihomo. It is not a provider bill, and unseen traffic is not estimated.
+- Unconfirmed routes remain unknown rather than being counted as direct. Complete coverage of system traffic or all proxy bypasses is not guaranteed.
+- Time-based app–website details are kept for up to 7 days and are capacity-limited. Last-30-days and all-time views do not guarantee complete website details for the entire period; available coverage is shown. App lifetime totals follow their existing retention settings.
+- Scoped IPv6 blocking is an auxiliary control, not strict IPv4 enforcement. Existing connections are not closed automatically. Loading restrictions may briefly affect networking while the core reloads.
 
-1. **准备环境**：Windows 与 Microsoft Edge WebView2 Runtime。当前安装器面向 x64 兼容环境；最低 Windows 版本尚未在项目文档中明确验收。
-2. **下载安装**：从 [最新 Releases](https://github.com/finnheihei/FlashMonitor/releases/latest) 下载名称以 `-setup.exe` 结尾的安装包，无需安装 Python。升级前先从托盘退出旧版 Monitor。
-3. **开启控制器**：在 FlClash / mihomo 客户端中开启「外部控制器（External Controller）」。
-4. **填写接入信息**：打开 Flash Monitor 的「设置 → Clash 接入」，填写对应控制器地址与密钥，再查看「实时」与「用量」。
+## Documentation and source
 
-默认安装到 `%LOCALAPPDATA%\FlashMonitor`，创建开始菜单快捷方式，正常安装无需管理员权限。卸载默认保留本机历史流量记录；旧数据迁移见 [Windows 安装说明](docs/windows-installer.md)。
+[User and developer guide](docs/usage-guide.md) · [Installation and migration](docs/windows-installer.md) · [IPv6 limitations](docs/scoped-ipv6.md) · [v0.9.13 notes](docs/release-notes-0.9.13.md)
 
-发布页同时提供独立的 `FlashMonitor.exe` 与 `SHA256SUMS.txt`。安装包暂未配置代码签名。
-
-## 统计口径与限制
-
-- **统计来源**：代理统计主要来自 Clash / mihomo 内核已观察到的连接。未观察到的流量不会补算；服务商倍率与计费方式可能不同，统计不等同于服务商账单。
-- **未知与覆盖范围**：无法确认归属或状态的连接标记为未知，不计入直连。工具不承诺覆盖所有系统流量或识别全部绕过代理行为。
-- **明细保留**：程序与网站的分时交叉明细最多保留 **7 天**，并受容量限制；近 30 天与累计视图可提供汇总计数，但不包含完整的 30 天程序—网站交叉明细。明细不足时会提示，不影响原有总累计保留设置。
-- **连接断开**：仅支持内核提供连接 ID 的连接，绕过内核的连接暂不支持。断开后应用可能自动重连。
-- **IPv6 控制**：受客户端配置、域名可见性、进程识别及 fake-ip 等条件限制；绕过内核的流量不在该功能控制范围内。
-- **功能边界**：不提供自动优化路由、降低延迟或节省固定比例流量的承诺。
-
-## 文档与源码
-
-[使用与开发说明](docs/usage-guide.md) · [安装与数据迁移](docs/windows-installer.md) · [IPv6 范围与限制](docs/scoped-ipv6.md) · [版本说明](docs/release-notes-0.9.13.md) · [截图与发布素材](docs/publishing-guide.md)
-
-源码运行需要 **Python 3.11+**，运行时只用标准库：
+The detailed documents above are currently in Chinese. Running from source requires **Python 3.11+**:
 
 ```bat
 start.cmd
 ```
 
-无窗口运行：`python -u monitor.py --no-gui --port 8787`。打包：`build.cmd`。
+Headless: `python -u monitor.py --no-gui --port 8787`. Build: `build.cmd`.
 
-## 许可证
+## License
 
-本项目采用 [MIT License](LICENSE)。
+[MIT](LICENSE)
