@@ -53,10 +53,49 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/check_ui_i18n.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_notices.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_settings_feedback.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_navigation_state.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_usage_scope.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_update.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_preferences.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_ipv6_races.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_reset.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_subscription.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_filter_recovery.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:FM_TEST_LANGUAGE = 'en'
           node tests/check_ui_attribution.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/check_ui_controls.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_settings_feedback.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_navigation_state.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_usage_scope.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_update.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_preferences.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_ipv6_races.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_reset.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_subscription.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/check_ui_filter_recovery.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build exe
         if: steps.version.outputs.publish == 'true'
         run: |
@@ -99,7 +138,7 @@ jobs:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
           name: Flash Monitor ${{ env.APP_VERSION }}
-          body_path: docs/release-notes-0.9.13.md
+          body_path: docs/release-notes-${{ env.APP_VERSION }}.md
           generate_release_notes: true
           files: |
             dist/FlashMonitor.exe

@@ -6,7 +6,7 @@
 
 A local traffic monitor for FlClash / Clash Meta (mihomo) on Windows, supporting TUN and system proxy setups.
 
-[Download Windows installer](https://github.com/finnheihei/FlashMonitor/releases/download/v0.9.13/FlashMonitor-0.9.13-setup.exe) · [All releases](https://github.com/finnheihei/FlashMonitor/releases) · [User guide (Chinese)](docs/usage-guide.md)
+[Download Windows installer](https://github.com/finnheihei/FlashMonitor/releases/download/v0.9.14/FlashMonitor-0.9.14-setup.exe) · [All releases](https://github.com/finnheihei/FlashMonitor/releases) · [User guide (Chinese)](docs/usage-guide.md)
 
 Is an app using a proxy or connecting directly? Which websites consume your proxy traffic? Which app is visiting a particular website? Flash Monitor connects these details so you can follow the traffic from app to website to route.
 
@@ -70,7 +70,7 @@ Check for updates and find uninstall instructions under **Settings → About**. 
 
 ## Install and connect
 
-1. Download `FlashMonitor-0.9.13-setup.exe` from [Releases](https://github.com/finnheihei/FlashMonitor/releases/latest) and run it. No Python installation is needed. Exit the old Monitor from the tray before upgrading.
+1. Download `FlashMonitor-0.9.14-setup.exe` from [Releases](https://github.com/finnheihei/FlashMonitor/releases/latest) and run it. No Python installation is needed. Exit the old Monitor from the tray before upgrading.
 2. Install Microsoft Edge WebView2 Runtime if needed and enable **External Controller** in your Clash / mihomo client.
 3. Open Monitor and enter the controller address and secret under Settings → Clash Connection.
 
@@ -80,9 +80,9 @@ Releases also include a standalone `FlashMonitor.exe` and `SHA256SUMS.txt`. Buil
 
 ## Interface language
 
-The current source version defaults to English. Use **中文** in the top bar to switch to Chinese, or **English** to switch back. The preference is saved in the local browser / WebView profile. Switching reloads the interface and restores the current page, search, filters and expanded rows. Unsaved form input is not retained; a prompt appears before switching from settings or an open dialog.
+The application defaults to English. Use **中文** in the top bar to switch to Chinese, or **English** to switch back. The preference is saved in the local browser / WebView profile. Switching reloads the interface and restores the current page, search, filters and expanded rows. Unsaved form input is not retained; a prompt appears before switching from settings or an open dialog.
 
-App-provided names, domains, paths, rules and controller diagnostics retain their original text. Native tray messages are not part of this interface translation. The published v0.9.13 installer predates this language feature; a new installer has not yet been released.
+App-provided names, domains, paths, rules and controller diagnostics retain their original text. Native tray messages are not part of this interface translation. The v0.9.14 installer includes language switching.
 
 ## Accounting and coverage
 
@@ -93,7 +93,7 @@ App-provided names, domains, paths, rules and controller diagnostics retain thei
 
 ## Documentation and source
 
-[User and developer guide](docs/usage-guide.md) · [Installation and migration](docs/windows-installer.md) · [IPv6 limitations](docs/scoped-ipv6.md) · [v0.9.13 notes](docs/release-notes-0.9.13.md)
+[User and developer guide](docs/usage-guide.md) · [Installation and migration](docs/windows-installer.md) · [IPv6 limitations](docs/scoped-ipv6.md) · [v0.9.14 notes](docs/release-notes-0.9.14.md)
 
 The detailed documents above are currently in Chinese. Running from source requires **Python 3.11+**:
 

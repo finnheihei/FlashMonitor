@@ -14,7 +14,7 @@ Windows 上给 [FlClash](https://github.com/chen08209/FlClash) / Clash Meta（mi
 
 ## 安装
 
-打开 [GitHub Releases 下载页](https://github.com/finnheihei/FlashMonitor/releases/latest)，下载 **FlashMonitor-0.9.13-setup.exe** 后双击安装，不用装 Python。安装前从托盘退出正在运行的 Monitor。
+打开 [GitHub Releases 下载页](https://github.com/finnheihei/FlashMonitor/releases/latest)，下载 **FlashMonitor-0.9.14-setup.exe** 后双击安装，不用装 Python。安装前从托盘退出正在运行的 Monitor。
 
 安装至 `%LOCALAPPDATA%\FlashMonitor`，在开始菜单创建快捷方式，正常无需管理员权限。需要 Microsoft Edge WebView2 Runtime；Clash 客户端要先打开外部控制器。卸载入口在 Windows“已安装的应用”，默认保留流量记录。安装器不自动搬移其他目录的旧数据，迁移说明见 [安装文档](windows-installer.md)。
 

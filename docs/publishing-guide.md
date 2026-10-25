@@ -27,7 +27,7 @@
 
 ## 社区发布介绍
 
-**标题：Flash Monitor v0.9.13：查看连接去向，统计累计代理流量，按需屏蔽 IPv6**
+**标题：Flash Monitor v0.9.14：查看连接去向，统计累计代理流量，按需屏蔽 IPv6**
 
 Flash Monitor 是面向 FlClash / mihomo 用户的 Windows 本机流量监视工具，支持 TUN 与系统代理场景，正在为 1.0 做准备。
 
@@ -48,7 +48,7 @@ Flash Monitor：面向 FlClash / mihomo 的 Windows 本机流量监视器。查�
 
 | 项目 | 当前结论 | 依据或待办 |
 | --- | --- | --- |
-| 版本 | 源码标记为 0.9.13 | `flashmonitor/__init__.py` |
+| 版本 | 源码标记为 0.9.14 | `flashmonitor/__init__.py` |
 | 许可证 | MIT | [LICENSE](../LICENSE) |
 | 安装架构与权限 | 安装器指定 x64compatible、PrivilegesRequired=lowest；正常安装无需管理员权限 | [安装器定义](../installer/FlashMonitor.iss) |
 | 最低 Windows 版本 | 尚未确认最终应用的最低兼容版本 | 安装器未显式指定 MinVersion；不能将编译器默认值当成应用完整验收结论 |

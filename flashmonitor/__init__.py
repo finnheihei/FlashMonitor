@@ -5,7 +5,7 @@
 
 APP_NAME = "Flash Monitor"
 APP_ID = "FlashMonitor"
-APP_VERSION = "0.9.13"
+APP_VERSION = "0.9.14"
 GITHUB_REPO = "finnheihei/FlashMonitor"
 
 __version__ = APP_VERSION

@@ -6,7 +6,7 @@
 
 面向 FlClash / Clash Meta（mihomo）用户的 Windows 本机流量监视工具，支持 TUN 与系统代理场景。
 
-当前版本：`v0.9.13` · [下载 Windows 安装包](https://github.com/finnheihei/FlashMonitor/releases/download/v0.9.13/FlashMonitor-0.9.13-setup.exe) · [所有版本](https://github.com/finnheihei/FlashMonitor/releases) · [使用说明](docs/usage-guide.md)
+当前版本：`v0.9.14` · [下载 Windows 安装包](https://github.com/finnheihei/FlashMonitor/releases/download/v0.9.14/FlashMonitor-0.9.14-setup.exe) · [所有版本](https://github.com/finnheihei/FlashMonitor/releases) · [使用说明](docs/usage-guide.md)
 
 程序有没有走代理？代理流量花在了哪些网站？某个网站又是哪个程序在访问？Flash Monitor 把程序、网站、连接去向和流量用量放在一起，方便顺着问题查下去。
 
@@ -70,7 +70,7 @@
 
 ## 安装与接入
 
-1. 从 [Releases](https://github.com/finnheihei/FlashMonitor/releases/latest) 下载 `FlashMonitor-0.9.13-setup.exe`，双击安装，无需配置 Python。升级前先从托盘退出旧版 Monitor。
+1. 从 [Releases](https://github.com/finnheihei/FlashMonitor/releases/latest) 下载 `FlashMonitor-0.9.14-setup.exe`，双击安装，无需配置 Python。升级前先从托盘退出旧版 Monitor。
 2. 确保已安装 Microsoft Edge WebView2 Runtime，并在 Clash / mihomo 客户端中开启外部控制器（External Controller）。
 3. 打开 Monitor，在「设置 → Clash 接入」填写控制器地址与密钥，开始查看「实时」与「用量」。
 
@@ -80,9 +80,9 @@
 
 ## 界面语言
 
-当前源码默认显示英文。点击顶部「中文」切换中文，点击「English」切回英文；偏好保存在本机浏览器 / WebView 配置中。切换会重新载入界面，并恢复当前页面、搜索、筛选和展开项。未保存的表单输入不会保留，设置页或弹窗打开时会先提示。
+程序默认显示英文。点击顶部「中文」切换中文，点击「English」切回英文；偏好保存在本机浏览器 / WebView 配置中。切换会重新载入界面，并恢复当前页面、搜索、筛选和展开项。未保存的表单输入不会保留，设置页或弹窗打开时会先提示。
 
-程序自带名称、域名、路径、规则和控制器诊断保留原文，原生托盘提示尚未纳入此次翻译。已发布的 v0.9.13 安装包还不包含语言切换，新安装包尚未发布。
+程序自带名称、域名、路径、规则和控制器诊断保留原文，原生托盘提示尚未纳入此次翻译。v0.9.14 安装包已包含语言切换。
 ## 统计口径与限制
 
 - **统计来源**：代理用量来自 Clash / mihomo 已观察到的连接，不等同于服务商账单；未观察到的流量不会补算。
@@ -92,7 +92,7 @@
 
 ## 文档与源码
 
-[详细使用与开发说明](docs/usage-guide.md) · [安装与数据迁移](docs/windows-installer.md) · [IPv6 范围与限制](docs/scoped-ipv6.md) · [版本说明](docs/release-notes-0.9.13.md)
+[详细使用与开发说明](docs/usage-guide.md) · [安装与数据迁移](docs/windows-installer.md) · [IPv6 范围与限制](docs/scoped-ipv6.md) · [版本说明](docs/release-notes-0.9.14.md)
 
 源码运行需要 **Python 3.11+**：
 
