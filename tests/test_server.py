@@ -230,7 +230,7 @@ class BodyTest(ServerTestBase):
 
     def test_empty_body(self) -> None:
         code, _, raw = self.request("POST", "/api/reset", b"")
-        self.assertEqual((code, json.loads(raw)), (200, {"ok": True}))
+        self.assertEqual((code, json.loads(raw)), (200, {"ok": True, "persisted": True, "pending": False}))
 
 
 class SecurityTest(ServerTestBase):

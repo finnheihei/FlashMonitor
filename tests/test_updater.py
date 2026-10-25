@@ -238,17 +238,34 @@ class ScriptTest(unittest.TestCase):
             src.write_bytes(b"new version")
             dst.write_bytes(b"old version")
             script = write_update_script(work / updater.SCRIPT_NAME)
-            waiter = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(2.5)"])
-            t0 = time.monotonic()
-            proc = launch_update_script(script, wait_pid=waiter.pid, src=src, dst=dst, work=work, extra_env={"FM_NO_START": "1"})
-            time.sleep(1.5)
-            self.assertEqual(dst.read_bytes(), b"old version", "旧进程还在时不替换")
-            waiter.wait(10)
-            proc.wait(30)
-            self.assertEqual(dst.read_bytes(), b"new version")
-            self.assertFalse(src.exists())
-            self.assertFalse(script.exists(), "脚本删掉了自己")
-            self.assertGreater(time.monotonic() - t0, 2.5)
+            # Hold the old process until explicitly released, independent of CI startup speed.
+            waiter = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.buffer.read(1)"],
+                                      stdin=subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW)
+            proc = None
+            try:
+                proc = launch_update_script(script, wait_pid=waiter.pid, src=src, dst=dst, work=work, extra_env={"FM_NO_START": "1"})
+                time.sleep(1.5)
+                self.assertIsNone(waiter.poll(), "the old process is still alive")
+                self.assertEqual(dst.read_bytes(), b"old version", "do not replace while the old process is alive")
+                waiter.stdin.close()
+                waiter.wait(10)
+                proc.wait(30)
+                self.assertEqual(dst.read_bytes(), b"new version")
+                self.assertFalse(src.exists())
+                self.assertFalse(script.exists(), "script cleans itself up after success")
+            finally:
+                if not waiter.stdin.closed:
+                    waiter.stdin.close()
+                if waiter.poll() is None:
+                    waiter.terminate()
+                waiter.wait(10)
+                if proc is not None:
+                    try:
+                        proc.wait(5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait(5)
+
 
 
 if __name__ == "__main__":

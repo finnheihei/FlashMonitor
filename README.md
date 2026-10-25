@@ -12,7 +12,7 @@ Is an app using a proxy or connecting directly? Which websites consume your prox
 
 ![Live connections](docs/media/screenshots/en/01-live.png)
 
-Real application UI captured on Windows / Edge with demo data; no real proxy service was connected. The screenshots predate the latest navigation changes described below.
+Real application UI captured on Windows / Edge with demo data; no real proxy service was connected.
 
 ## See where connections go
 

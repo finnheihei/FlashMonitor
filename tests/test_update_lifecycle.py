@@ -274,7 +274,9 @@ class FirstHideTests(unittest.TestCase):
 class UpdateScriptSafetyTests(unittest.TestCase):
     def test_failure_branches_stop_without_launch_or_cleanup(self):
         script=updater.UPDATE_SCRIPT
-        self.assertIn('if %TRIES% geq 120 goto wait_failed', script)
+        self.assertIn('WaitForExit(120000)', script)
+        self.assertIn('if errorlevel 2 goto probe_failed', script)
+        self.assertIn('if errorlevel 1 goto wait_failed', script)
         self.assertIn('goto move_failed\r\n:start', script)
         for label in ('wait_failed', 'probe_failed', 'move_failed'):
             block=script.split(':'+label+'\r\n', 1)[1].split('\r\n:', 1)[0]
