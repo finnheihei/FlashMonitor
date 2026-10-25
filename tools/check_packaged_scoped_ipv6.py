@@ -16,6 +16,7 @@ from urllib.request import ProxyHandler, build_opener
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / 'tests')]
 from check_ipv6_core import Echo, IsolatedCore, probe
+from connection_test_helpers import open_connection
 from test_ipv6_plans import fixture
 from flashmonitor.clash import ClashClient
 from flashmonitor.scoped_ipv6 import GENERAL_KEYS, RuntimeController
@@ -121,8 +122,7 @@ async def check(executable, binary, output):
             page = await context.new_page()
             page.on('pageerror', lambda error: errors.append(str(error)))
             await page.goto(base + '/?desk=1')
-            await page.locator('#view-menu summary').click()
-            await page.locator('[data-connection-entry]').click()
+            await open_connection(page)
             await page.wait_for_function('!connectionLoading')
             assert await page.locator('#scoped-ipv6-enable').is_enabled()
             assert await page.locator('#connection-confirm, #gpt-dialog').count() == 0

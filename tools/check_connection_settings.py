@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 ROOT=Path(__file__).resolve().parent.parent
 sys.path[:0]=[str(ROOT),str(ROOT/'tools')]
 from check_gpt_network import GPTFixture
+from connection_test_helpers import open_connection, open_catalog
 from tests.test_network_policy import APP
 from playwright.async_api import async_playwright
 
@@ -47,12 +48,14 @@ async def check(out):
             assert await page.evaluate('typeof openIPv4Drafts')=='undefined'
         try:
             await page.goto('http://127.0.0.1:18799/?desk=1');await page.wait_for_selector('[data-program=msedge]');await absent()
-            await page.locator('#view-menu summary').click();await page.locator('[data-connection-entry]').click();await ready();await absent()
+            await open_connection(page);await ready();await absent()
             assert await page.locator('#gpt-dialog').is_visible() and await page.locator('dialog[open]').count()==1
             assert '只读诊断' in await page.locator('#connection-dialog').inner_text()
             assert await page.locator('#gpt-apply').is_disabled() and await page.locator('#gpt-apply').is_hidden()
             assert not any(r['path'].startswith('/api/ipv4') for r in f.requests)
-            await page.locator('#connection-close').click();assert await page.locator('#view-menu summary').evaluate('e=>e===document.activeElement')
+            await page.locator('#connection-close').click();assert await page.locator('[data-connection-entry]').evaluate('e=>e===document.activeElement')
+            await page.locator('#filters button').first.click()
+            await page.wait_for_function("filter==='overview' && !poll.busy")
             ok('generic settings opens useful GPT diagnosis directly, no mode shell/IPv4 editor/hidden reentry/catalog fetch')
             await page.locator('[data-program=msedge]').click();trigger=page.locator('.program-detail [data-connection-process=msedge]');await trigger.click();await ready()
             assert await page.locator('#gpt-kind').input_value()=='application';assert await page.locator('#gpt-apps input:checked').count()==1;assert await page.locator('#gpt-apps input:checked').input_value()==APP['value']
@@ -76,7 +79,7 @@ async def check(out):
             for suffix in ['#view=ipv4','#filter=ipv4','#page=ipv4','#view=rank&page=ipv4','?mode=ipv4#ipv4-dialog']:
                 await page.goto('http://127.0.0.1:18799/'+suffix);await page.wait_for_selector('#filters button');await absent();assert not await page.locator('#connection-dialog').evaluate('e=>e.open')
             ok('five old deep-link/query forms cannot expose or recreate the retired IPv4 flow')
-            await page.locator('#view-menu summary').click();await page.locator('[data-connection-entry]').click();await ready();await page.locator('#connection-advanced > summary').click();await page.locator('#btn-drafts').click();await page.wait_for_selector('[data-saved-draft=msedge]');await page.locator('[data-saved-draft=msedge]').click();await page.wait_for_selector('#rule-actions:not([hidden])');assert await page.locator('#rule-export').is_enabled();assert await page.locator('#rule-save').is_hidden();await page.keyboard.press('Escape');await page.keyboard.press('Escape');await page.locator('#connection-close').click()
+            await open_catalog(page);await page.wait_for_selector('[data-saved-draft=msedge]');await page.locator('[data-saved-draft=msedge]').click();await page.wait_for_selector('#rule-actions:not([hidden])');assert await page.locator('#rule-export').is_enabled();assert await page.locator('#rule-save').is_hidden();await page.keyboard.press('Escape');await page.keyboard.press('Escape')
             f.exited=True;await page.reload();await page.wait_for_selector('#filters button');await absent()
             assert f.ipv4_store.path.read_bytes()==f.retained and len(f.ipv4_store.catalog()['drafts'])==2
             assert f.rule_store.catalog()['drafts'][0]['draft']['target']=='DIRECT'

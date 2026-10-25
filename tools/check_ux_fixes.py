@@ -148,8 +148,9 @@ async def check(output):
             await page.wait_for_function("document.getElementById('draft-library-list').textContent.includes('没有已保存')")
             assert await page.locator('#draft-library-close').evaluate('e=>e===document.activeElement')
             await page.keyboard.press('Escape')
-            assert await page.locator('#btn-drafts').evaluate('e=>e===document.activeElement')
-            await page.locator('#connection-close').click()
+            assert await page.locator('#settings-advanced [data-open-drafts]').evaluate('e=>e===document.activeElement')
+            await page.locator('#filters button').first.click()
+            await page.wait_for_function("filter==='overview' && !poll.busy")
             passed('save, process exit, page reload, independent draft reopen/export/delete and keyboard return')
 
             fixture.exited = False

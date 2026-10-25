@@ -49,19 +49,26 @@ def leak_summary(flows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     return {"count": sum(int(r["n"]) for r in rows), "rows": rows[:12]}
 
 
-def quota_alerts(today: Mapping[str, Any], *, total_mb: int, program_mb: int) -> list[dict[str, Any]]:
+def quota_alerts(
+    today: Mapping[str, Any], *, total_mb: int, program_mb: int, skip: set[str] | None = None,
+) -> list[dict[str, Any]]:
     alerts: list[dict[str, Any]] = []
+    skip = skip or set()
+    stats_day = str(today.get("stats_day") or "")
     used_total = int(today.get("upload") or 0) + int(today.get("download") or 0)
     if total_mb > 0:
         limit = total_mb * 1024 * 1024
         if used_total >= limit:
-            alerts.append({"kind": "total", "process": "", "used": used_total, "limit": limit})
+            alerts.append({"kind": "total", "process": "", "used": used_total, "limit": limit, "stats_day": stats_day})
     if program_mb > 0:
         limit = program_mb * 1024 * 1024
         for row in today.get("rows") or []:
+            name = str(row.get("process") or "")
+            if not name or name.lower() in skip:
+                continue
             used = int(row.get("upload") or 0) + int(row.get("download") or 0)
             if used >= limit:
-                alerts.append({"kind": "program", "process": str(row.get("process") or ""), "used": used, "limit": limit})
+                alerts.append({"kind": "program", "process": name, "used": used, "limit": limit, "stats_day": stats_day})
             if len(alerts) >= 8:
                 break
     return alerts
@@ -76,6 +83,7 @@ def build_alerts(
     show_new_banner: bool,
     total_mb: int,
     program_mb: int,
+    notify_new_app: bool = False,
 ) -> list[dict[str, Any]]:
     alerts: list[dict[str, Any]] = []
     leak_n = 0
@@ -89,18 +97,16 @@ def build_alerts(
             names.append(name)
     if leak_n:
         alerts.append({"kind": "leak", "count": leak_n, "names": names})
-    if show_new_banner:
+    if show_new_banner or notify_new_app:
         for rec in new_apps[-6:]:
             name = str(rec.get("process") or "")
             if name.lower() in skip:
                 continue
             alerts.append({"kind": "new", "process": name, "ts": int(rec.get("ts") or 0)})
-    for item in quota_alerts(today, total_mb=total_mb, program_mb=program_mb):
-        name = str(item.get("process") or "")
-        if name and name.lower() in skip:
-            continue
-        alerts.append(item)
-    return alerts[:12]
+    alerts.extend(quota_alerts(today, total_mb=total_mb, program_mb=program_mb, skip=skip))
+    # Each category is bounded (1 leak, 6 new apps, 8 quota events). A second
+    # combined cap would permanently hide the last quota events behind new apps.
+    return alerts
 
 
 def export_csv(lanes: Mapping[str, Any]) -> bytes:
@@ -165,6 +171,8 @@ class Collector:
 
     def collect(self, *, fresh: bool = False) -> dict[str, Any]:
         with self._sample_lock:
+            if getattr(self.store, '_closed', False):
+                raise RuntimeError('统计库已关闭，未继续采集')
             return self._collect(fresh=fresh)
 
     def _collect(self, *, fresh: bool = False) -> dict[str, Any]:
@@ -378,6 +386,7 @@ class Collector:
             self.store.recent_new(),
             skip=self._ignored(),
             show_new_banner=bool(data.get("show_new_banner", True)),
+            notify_new_app=bool(data.get("notify_new_app", False)),
             total_mb=_int_setting(data, "quota_total_mb"),
             program_mb=_int_setting(data, "quota_program_mb"),
         )
@@ -391,6 +400,8 @@ class Collector:
     def refresh(self):
         """Fresh read-only controller data; serialize with normal sampling and publication."""
         with self._sample_lock:
+            if getattr(self.store, '_closed', False):
+                raise RuntimeError('统计库已关闭，未刷新')
             self.clash.invalidate_config_cache()
             state = self._collect(fresh=True)
             inventory = self.clash.network_inventory()
@@ -404,6 +415,8 @@ class Collector:
     def poller(self, stop: threading.Event) -> None:
         while not stop.is_set():
             with self._sample_lock:
+                if stop.is_set():
+                    return
                 try:
                     self._on_poll()
                     self.live.set(self.with_alerts(self.collect()))
@@ -417,6 +430,8 @@ class Collector:
             t0 = time.monotonic()
             try:
                 with self._sample_lock:
+                    if stop.is_set():
+                        return
                     payload = self.clash.payload()
                     if payload is None:
                         self.store.decay_speed()

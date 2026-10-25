@@ -9,6 +9,7 @@ from unittest.mock import patch
 from urllib.parse import urlparse
 
 from check_gpt_network import GPTFixture
+from connection_test_helpers import open_connection
 from flashmonitor.app import MonitorApi
 from flashmonitor.settings import AppSettings
 from playwright.async_api import async_playwright
@@ -55,7 +56,7 @@ async def check(out):
         ctx=await browser.new_context(viewport={'width':1100,'height':800},service_workers='block');await ctx.route('**/*',f.route)
         page=await ctx.new_page();page.set_default_timeout(12000);page.on('pageerror',lambda e:errors.append(str(e)))
         async def opened():
-            await page.locator('#view-menu summary').click();await page.locator('[data-connection-entry]').click()
+            await open_connection(page)
             await page.wait_for_function("!document.getElementById('connection-confirm').disabled && document.getElementById('gpt-target').options.length>1")
         async def confirm():
             await page.locator('#connection-confirm').click();await page.wait_for_function('!connectionSaving')
@@ -123,7 +124,7 @@ async def check(out):
             await page.locator('#connection-close').click()
             ok('different context retains its own scope without overwriting saved choice; generic reopening restores it; confirm reachable at four viewport sizes')
 
-            await page.set_viewport_size({'width':1100,'height':800});f.read_failure=True;await page.locator('#view-menu summary').click();await page.locator('[data-connection-entry]').click();await page.wait_for_selector('#gpt-error:not([hidden])')
+            await page.set_viewport_size({'width':1100,'height':800});f.read_failure=True;await open_connection(page);await page.wait_for_selector('#gpt-error:not([hidden])')
             assert await page.locator('#connection-confirm').is_disabled();assert await page.locator('#gpt-refresh').is_enabled();f.read_failure=False;await page.locator('#gpt-refresh').click();await page.wait_for_function("!document.getElementById('connection-confirm').disabled")
             assert await page.locator('#gpt-apps input:checked').input_value()==r'D:\Other\browser.exe'
             assert await page.locator('#ipv4-dialog,[data-connection-mode]').count()==0

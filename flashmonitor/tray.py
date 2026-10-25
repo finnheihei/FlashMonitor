@@ -6,6 +6,7 @@ import ctypes
 import sys
 import threading
 from ctypes import wintypes
+from datetime import date
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -208,15 +209,15 @@ class WinTray:
             user32.DispatchMessageW(ctypes.byref(msg))
         shell32.Shell_NotifyIconW(NIM_DELETE, ctypes.byref(nid))
 
-    def balloon(self, title: str, text: str) -> None:
+    def balloon(self, title: str, text: str) -> bool:
         if self._nid is None or not self.hwnd:
-            return
+            return False
         nid = self._nid
         nid.uFlags = 0x01 | 0x02 | 0x04 | 0x10
         nid.szInfoTitle = title[:63]
         nid.szInfo = text[:255]
         nid.dwInfoFlags = 1
-        ctypes.windll.shell32.Shell_NotifyIconW(1, ctypes.byref(nid))
+        return bool(ctypes.windll.shell32.Shell_NotifyIconW(1, ctypes.byref(nid)))
 
     def set_tip(self, text: str) -> None:
         if self._nid is None or not self.hwnd:
@@ -275,15 +276,18 @@ class TrayPulse:
         live_view: Callable[[], Mapping[str, Any]],
         alerts: Callable[[], list[dict[str, Any]]],
         settings: Callable[[], Mapping[str, Any]],
+        local_day: Callable[[], date] = date.today,
     ) -> None:
         self.tray = tray
         self._live_view = live_view
         self._alerts = alerts
         self._settings = settings
+        self._local_day = local_day
         self.tip = ""
         self.seen_new: set[str] = set()
         self.leak_shown = False
-        self.quota_shown: set[str] = set()
+        self.quota_day = self._local_day()
+        self.quota_shown: set[tuple[str, str]] = set()
 
     def _balloon(self, title: str, text: str) -> None:
         try:
@@ -292,6 +296,10 @@ class TrayPulse:
             fmlog.log_exception("托盘气泡", exc)
 
     def once(self) -> None:
+        today = self._local_day()
+        if today != self.quota_day:
+            self.quota_day = today
+            self.quota_shown.clear()
         tip = tray_tip_text(self._live_view())
         if tip != self.tip:
             self.tip = tip
@@ -315,14 +323,23 @@ class TrayPulse:
                 self.leak_shown = True
                 self._balloon("漏网", f"{item.get('count') or 0} 条连接没进 TUN")
                 return
-            if kind == "total" and settings.get("notify_quota", True) and "total" not in self.quota_shown:
-                self.quota_shown.add("total")
+            if kind in {"total", "program"}:
+                # Reading live state or updating the tray can itself cross midnight.
+                # Recheck immediately before consuming this day's reminder slot.
+                today = self._local_day()
+                if today != self.quota_day:
+                    self.quota_day = today
+                    self.quota_shown.clear()
+                if item.get("stats_day") != today.isoformat():
+                    continue
+            if kind == "total" and settings.get("notify_quota", True) and ("total", "") not in self.quota_shown:
+                self.quota_shown.add(("total", ""))
                 self._balloon("日流量", "今天合计已经超过提醒值")
                 return
             if kind == "program" and settings.get("notify_quota", True):
                 key = str(item.get("process") or "")
-                if key and key not in self.quota_shown:
-                    self.quota_shown.add(key)
+                if key and ("program", key) not in self.quota_shown:
+                    self.quota_shown.add(("program", key))
                     self._balloon("日流量", f"{process_label(key)} 今天已经超过提醒值")
                     return
         if not any(a.get("kind") == "leak" for a in alerts):

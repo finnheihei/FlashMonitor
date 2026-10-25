@@ -1,8 +1,7 @@
 """settings.py。
 
-SettingsBehaviourTest 只看 apply() 之后的 data 和读回来的文件，描述 0.8.0 原有的校验规则
-（用同一套用例跑过 0.8.0 的 AppSettings）。SettingsFixesTest 是新增的：给页面的版本不含密钥原文、
-保存失败不抛异常、保存后的回调。
+SettingsBehaviourTest 检查 apply() 后的 data 和读回来的文件。
+SettingsFixesTest 覆盖无效地址整批拒绝、密钥不泄露、保存失败和保存后的回调。
 """
 
 from __future__ import annotations
@@ -10,8 +9,10 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from flashmonitor.settings import DEFAULT_IGNORE, AppSettings, contains_secret, url_hint
 
@@ -98,14 +99,14 @@ class SettingsBehaviourTest(SettingsTestBase):
         s = self.make()
         s.apply({"clash_api": " http://127.0.0.1:9097/ "})
         self.assertEqual(s.data["clash_api"], "http://127.0.0.1:9097")
-        s.apply({"clash_api": "ftp://x"})
+        self.assertIs(s.apply({"clash_api": "ftp://x"}), False)
         self.assertEqual(s.data["clash_api"], "http://127.0.0.1:9097", "不认识的协议不改")
         s.apply({"sub_url": SUB})
         self.assertEqual(s.data["sub_url"], SUB)
-        s.apply({"sub_url": "sub.example.com/no-scheme"})
-        self.assertEqual(s.data["sub_url"], "", "不是 http(s) 的订阅地址清空")
-        s.apply({"sub_url": "https://x/" + "a" * 2000})
-        self.assertEqual(s.data["sub_url"], "")
+        self.assertIs(s.apply({"sub_url": "sub.example.com/no-scheme"}), False)
+        self.assertEqual(s.data["sub_url"], SUB, "无效订阅地址保留原设置")
+        self.assertIs(s.apply({"sub_url": "https://x/" + "a" * 2000}), False)
+        self.assertEqual(s.data["sub_url"], SUB)
         s.apply({"clash_secret": f"  {SECRET}  "})
         self.assertEqual(s.data["clash_secret"], SECRET)
         s.apply({"clash_secret": ""})
@@ -170,6 +171,58 @@ class SettingsBehaviourTest(SettingsTestBase):
 
 
 class SettingsFixesTest(SettingsTestBase):
+    def test_invalid_urls_reject_entire_patch_without_writes_or_hooks(self) -> None:
+        s = self.make()
+        s.apply({"clash_api": "http://127.0.0.1:9097", "sub_url": SUB})
+        before = deepcopy(s.data)
+        disk_before = self.path.read_bytes()
+        self.hooks.saved.clear()
+        invalid = (
+            "127.0.0.1:9090", "http://", "http:///missing", "ftp://example.com",
+            "http://example.com:abc", "http://example.com:65536", "http://example.com:0",
+            "http://example.com:", "http://[broken", "http://999.0.0.1",
+            "http://bad host", "http://bad\nhost", "http://-bad.example", "http://bad..example",
+            "http://example.com\\path", "http://user:password@example.com", "http://example.com/#fragment",
+            "http://example.com/#",
+            None, False,
+        )
+        for key in ("clash_api", "sub_url"):
+            for value in invalid:
+                with self.subTest(key=key, value=value):
+                    patch = {"autostart": True, "close_to_tray": False, "clash_secret": "new-secret",
+                             "clash_api": "https://controller.example.com", key: value}
+                    self.assertIs(s.apply(patch), False)
+                    self.assertEqual(s.data, before)
+                    self.assertEqual(self.path.read_bytes(), disk_before)
+                    self.assertEqual(self.hooks.calls, [])
+                    self.assertEqual(self.hooks.saved, [])
+                    self.assertIn("地址无效", s.public()["error"])
+                    self.assertNotIn("password", s.public()["error"])
+
+    def test_rejected_url_does_not_create_settings_file(self) -> None:
+        s = self.make()
+        self.assertIs(s.apply({"clash_api": ""}), False)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.hooks.saved, [])
+
+    def test_url_recovery_valid_hosts_and_explicit_subscription_clear(self) -> None:
+        s = self.make()
+        self.assertIs(s.apply({"clash_api": "http://example.com/?bad=1"}), False)
+        self.assertIs(s.apply({"clash_api": "http://example.com/?"}), False)
+        for address in ("http://localhost:9090", "http://[::1]:9090", "https://proxy.example.com/clash",
+                        "https://例子.测试:443", "HTTP://127.0.0.1:9090"):
+            with self.subTest(address=address):
+                self.assertIsNot(s.apply({"clash_api": f" {address}/ "}), False)
+                self.assertEqual(s.data["clash_api"], address)
+                self.assertEqual(s.error, "")
+        s.apply({"sub_url": SUB})
+        self.assertEqual(s.data["sub_url"], SUB)
+        self.assertIsNot(s.apply({"sub_url": ""}), False)
+        self.assertEqual(s.data["sub_url"], "")
+        self.assertFalse(s.public()["sub_url_set"])
+        self.assertEqual(self.on_disk()["sub_url"], "")
+        self.assertEqual(self.hooks.saved[-1], {"sub_url"})
+
     def test_public_view_has_no_secrets(self) -> None:
         s = self.make()
         s.apply({"clash_secret": SECRET, "sub_url": SUB})
@@ -195,10 +248,73 @@ class SettingsFixesTest(SettingsTestBase):
     def test_save_failure_is_reported_not_raised(self) -> None:
         s = self.make()
         self.path.mkdir()  # settings.json 变成目录：写不进去
-        s.apply({"retention_days": 30})
+        self.assertIs(s.apply({"retention_days": 30}), False)
         self.assertIn("设置没存上", s.error)
-        self.assertEqual(s.data["retention_days"], 30, "内存里的设置照样生效")
+        self.assertEqual(s.data["retention_days"], 40, "写入失败时保留已生效的设置")
         self.assertIn("设置没存上", s.public()["error"])
+        self.assertEqual(self.hooks.saved, [])
+
+    def test_failed_replace_preserves_all_runtime_settings_and_has_no_side_effects(self) -> None:
+        s = self.make()
+        self.assertTrue(s.apply({"clash_api": "http://127.0.0.1:9090", "sub_url": SUB,
+                                 "ignored": ["background"], "pinned": ["browser"]}))
+        before = deepcopy(s.data)
+        data_reference = s.data
+        disk_before = self.path.read_bytes()
+        self.hooks.saved.clear()
+        with patch.object(Path, "replace", side_effect=PermissionError("synthetic disk denied")):
+            self.assertFalse(s.apply({"clash_api": "http://127.0.0.1:9097",
+                                      "clash_secret": "unsaved-secret", "sub_url": "",
+                                      "process": "background", "pinned": True,
+                                      "autostart": True, "start_minimized": True}))
+        self.assertIs(s.data, data_reference)
+        self.assertEqual(s.data, before)
+        self.assertEqual(self.path.read_bytes(), disk_before)
+        self.assertEqual(self.hooks.calls, [])
+        self.assertEqual(self.hooks.saved, [])
+        self.assertFalse(s.public()["clash_secret_set"])
+        self.assertTrue(s.public()["sub_url_set"])
+
+        # An unrelated successful save must never persist the rejected values.
+        self.assertTrue(s.apply({"notify_hide": True}))
+        reopened = self.make()
+        for key in ("clash_api", "clash_secret", "sub_url", "ignored", "pinned", "start_minimized"):
+            self.assertEqual(reopened.data[key], before[key])
+
+    def test_hooks_see_durable_settings_and_existing_data_reference_is_preserved(self) -> None:
+        s = self.make()
+        data_reference = s.data
+        observed = []
+
+        def observe_autostart(on: bool) -> None:
+            observed.append((s.data["start_minimized"], self.on_disk()["start_minimized"]))
+            self.hooks.set_autostart(on)
+
+        s._set_autostart = observe_autostart
+        self.assertTrue(s.apply({"autostart": True, "start_minimized": True}))
+        self.assertEqual(observed, [(True, True)])
+        self.assertIs(s.data, data_reference)
+        self.assertEqual(self.hooks.saved, [{"autostart", "start_minimized"}])
+        self.assertNotIn("autostart", self.on_disk(), "系统自启状态不在 JSON 中重复持久化")
+        self.assertTrue(self.make().data["autostart"])
+
+    def test_autostart_failure_reports_actual_state_without_losing_saved_preferences(self) -> None:
+        s = self.make()
+        self.hooks.fail = "无法写入开机启动项：拒绝访问"
+        self.assertFalse(s.apply({"autostart": True, "start_minimized": True}))
+        self.assertEqual(s.error, "其他设置已保存，开机启动项未更新：" + self.hooks.fail)
+        self.assertFalse(s.data["autostart"])
+        self.assertFalse(s.public()["autostart"])
+        self.assertTrue(s.data["start_minimized"])
+        self.assertTrue(self.on_disk()["start_minimized"])
+        self.assertEqual(self.hooks.saved, [{"autostart", "start_minimized"}])
+
+    def test_old_autostart_snapshot_never_overrides_system_state(self) -> None:
+        self.path.write_text(json.dumps({"autostart": True}), encoding="utf-8")
+        s = self.make()
+        self.assertFalse(s.data["autostart"])
+        self.assertTrue(s.apply({"notify_hide": True}))
+        self.assertNotIn("autostart", self.on_disk())
 
     def test_on_saved_gets_changed_keys_and_errors_are_contained(self) -> None:
         s = self.make()

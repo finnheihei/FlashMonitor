@@ -43,7 +43,7 @@ class UiConsistencyTest(unittest.TestCase):
         # 有些元素是脚本自己生成的（总览页、火花线），它们的 id 出现在脚本的模板字符串里
         missing = sorted(i for i in ids if i not in defined)
         self.assertEqual(missing, [], "脚本用到了页面里没有的元素")
-        static = {"filters", "status", "q", "btn-update", "win-btns", "setup", "quota", "toast", "rank-modes", "periods", "sort", "btn-leak", "btn-export", "show-ignored", "chk-ignored", "main", "brand-ver"}
+        static = {"filters", "status", "q", "win-btns", "setup", "quota", "toast", "rank-modes", "periods", "sort", "btn-leak", "btn-export", "show-ignored", "chk-ignored", "main", "brand-ver"}
         self.assertEqual(sorted(i for i in static if f'id="{i}"' not in markup), [], "这些元素应该写在静态 HTML 里")
 
     def test_api_calls_go_through_the_helper(self) -> None:

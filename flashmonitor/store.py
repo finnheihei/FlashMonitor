@@ -864,8 +864,19 @@ class TrafficStore:
                 for k, v in self.proc_speed.items()
             }
 
-    def reset(self) -> None:
-        """清零累计和时段数据（连接记录文件保留），并立即写库。写失败时查询也按已清零处理，下次 flush 重试。"""
+    def reset(self) -> dict[str, Any]:
+        """清零并报告是否持久保存；写入失败保留清零标记，由后续 flush 重试。"""
+        with self.lock:
+            if self._closed:
+                return {"ok": False, "persisted": False, "pending": False,
+                        "error": "统计库已关闭，未清零。"}
+            if not self.db.persistent:
+                return {"ok": False, "persisted": False, "pending": False,
+                        "error": "统计数据库仅在内存中，暂不能持久清零；未修改当前统计。"}
+        current = self._reset_result()
+        if current["pending"]:
+            # 重复请求只查询上一轮清零的状态，保留期间采集到的新流量。
+            return current
         if self.site_details is not None:
             self.site_details.reset()
         with self.lock:
@@ -878,6 +889,19 @@ class TrafficStore:
             self._pending_reset = True
             self._reset_gen += 1
         self.flush()
+        return self._reset_result()
+
+    def _reset_result(self) -> dict[str, Any]:
+        health = self.storage_health()
+        pending = health["reset_pending"]
+        result: dict[str, Any] = {"ok": not pending, "persisted": not pending, "pending": pending}
+        if pending:
+            result["error"] = (
+                "清零已在当前会话生效，但网站明细暂不可用，尚未全部持久保存；请保持程序运行并检查数据目录。"
+                if self.site_details is not None and self.site_details.conn is None else
+                "清零已在当前会话生效，但尚未全部写入磁盘；请保持程序运行，系统会自动重试。"
+            )
+        return result
 
     # ---------- 程序信息 ----------
 
@@ -1130,6 +1154,7 @@ class TrafficStore:
 
     def storage_health(self) -> dict[str, Any]:
         with self.lock:
+            reset_pending = bool(self._pending_reset or self._inflight_reset)
             pending = bool(self._pending or self._inflight or self._dirty_programs or self._seen_new
                            or self._meta_pending or self._pending_reset or self._inflight_reset)
             persistent = self.db.persistent
@@ -1137,9 +1162,10 @@ class TrafficStore:
         detail_failed = bool(self.site_details is not None and self.site_details.error)
         if self.site_details is not None:
             with self.site_details._lock:
+                reset_pending = reset_pending or self.site_details._reset_pending
                 pending = pending or bool(self.site_details._pending or self.site_details._inflight or self.site_details._reset_pending)
         return {'persistent': persistent, 'healthy': persistent and not failed and not detail_failed,
-                'pending': pending,
+                'pending': pending, 'reset_pending': bool(reset_pending),
                 'last_error': ('统计暂存内存，尚未写入磁盘。' if not persistent else
                                '统计写盘失败，待写数据保留。' if failed else
                                '网站明细暂不可用，程序累计状态单独保存。' if detail_failed else ''),

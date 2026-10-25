@@ -12,7 +12,7 @@ Is an app using a proxy or connecting directly? Which websites consume your prox
 
 ![Live connections](docs/media/screenshots/en/01-live.png)
 
-Real application UI captured on Windows / Edge with demo data; no real proxy service was connected.
+Real application UI captured on Windows / Edge with demo data; no real proxy service was connected. The screenshots predate the latest navigation changes described below.
 
 ## See where connections go
 
@@ -20,11 +20,13 @@ Switch between **Apps** and **Websites** on the Live page. Check upload and down
 
 Expand an app to see the websites it visits. Switch to websites to find the apps connecting to the same destination. Detected connections bypassing TUN have a notice and a details entry.
 
+When subscription usage is available and enabled, the live list shows a compact summary of usage, remaining quota and expiry. Expand it for more details and a refresh action. Failed reads retain a retry action; cached data shows its status and available update time. Changing subscriptions does not reuse another plan’s balance.
+
 ![App website details](docs/media/screenshots/en/02-program.png)
 
 ## Find where your proxy traffic goes
 
-Usage opens with **today's proxy usage first**. Proxy and direct traffic are shown separately for apps and websites, so a large direct download does not look like proxy consumption.
+Usage opens with **today's proxy usage first**. The main metric follows the current filters: total, proxy or direct usage, with node traffic shown in the node view. Proxy and direct traffic are shown separately for apps and websites, so a large direct download does not look like proxy consumption.
 
 - **Three dimensions:** apps, websites and nodes; the node view shows traffic through each node.
 - **Five periods:** last hour, today, last 7 days, last 30 days and all time.
@@ -40,13 +42,15 @@ Expand an app to inspect its website usage, or expand a website to see the assoc
 
 View the remote address, outbound and node. Disconnect a single connection or a group belonging to an app or website. Results distinguish successful and failed requests.
 
+Connections and Usage show active filter labels with a clear action, making it easier to return to the full result set.
+
 Disconnection requires connection IDs provided by the proxy core. Connections bypassing the core cannot be disconnected here. Apps may reconnect automatically; disconnecting does not permanently block network access.
 
 ![Connection details](docs/media/screenshots/en/03-connections.png)
 
 ## Block IPv6 for selected apps or websites
 
-Open **Connection settings** from an app or website's `⋯` menu and toggle **Block IPv6** for that scope, without disabling IPv6 globally on Windows or a network adapter.
+Open **IPv6 blocking** from an app or website's `⋯` menu and toggle **Block IPv6** for that scope, without disabling IPv6 globally on Windows or a network adapter. To choose a scope first, open **Settings → Clash Connection → Choose an app or website**.
 
 This restricts new connections whose IPv6 destinations are identified by the core. It does not guarantee IPv4 fallback or control traffic bypassing the core. Current requirements include a verifiable FlClash configuration, a local controller and a Meta core in rule mode; app scopes also require strict / always process identification. See [IPv6 scope and limitations (Chinese)](docs/scoped-ipv6.md).
 
@@ -54,10 +58,13 @@ This restricts new connections whose IPv6 destinations are identified by the cor
 
 ## Built for everyday use
 
-- **List and bubble views:** the bubble view shows the top 12 active apps. Use Back to list or press `Esc` to return.
+- **List and bubble views:** the top **View** menu switches between the list and the top 12 active apps in bubbles. Use Back to list or press `Esc` to return.
+- **Compact notices:** routine notices share a collapsible group and a **Collapse for today** action; new notices still update the count. Storage errors stay visible separately.
 - **App icons:** native icons when available, stable generic icons otherwise.
 - **Tray collection:** closing the window keeps collection running by default. Opening the app again brings back the existing window.
 - **Local records:** usage is stored locally; the service listens only on `127.0.0.1`.
+
+Check for updates and find uninstall instructions under **Settings → About**. **Settings → Data → Advanced maintenance** is collapsed by default and contains the installation folder, diagnostics, rule drafts and legacy IPv6 actions.
 
 ![Bubble view](docs/media/screenshots/en/06-balls.png)
 
@@ -65,7 +72,7 @@ This restricts new connections whose IPv6 destinations are identified by the cor
 
 1. Download `FlashMonitor-0.9.13-setup.exe` from [Releases](https://github.com/finnheihei/FlashMonitor/releases/latest) and run it. No Python installation is needed. Exit the old Monitor from the tray before upgrading.
 2. Install Microsoft Edge WebView2 Runtime if needed and enable **External Controller** in your Clash / mihomo client.
-3. Open Monitor and enter the controller address and secret under Settings → Connection.
+3. Open Monitor and enter the controller address and secret under Settings → Clash Connection.
 
 The installer defaults to `%LOCALAPPDATA%\FlashMonitor`, creates a Start menu shortcut and normally does not require administrator privileges. Uninstalling retains historical traffic records by default. See [installation and data migration (Chinese)](docs/windows-installer.md).
 

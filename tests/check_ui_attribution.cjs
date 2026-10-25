@@ -15,7 +15,7 @@ function source(name) {
 }
 const context = vm.createContext({
   tr:require('./ui_locale.cjs').translator(process.env.FM_TEST_LANGUAGE || 'zh-CN'),UI_LOCALE:'en-US',
-  console, period:'today', rankMode:'program',trafficScope:'proxy',rankSort:{key:null,direction:'desc'},processScope:'',
+  document:{getElementById:()=>({checked:false})},console, period:'today', rankMode:'program',trafficScope:'proxy',rankSort:{key:null,direction:'desc'},processScope:'',
   homeScope:'all',query:()=>'',hit:()=>true,isIgnored:()=>false,isPinned:()=>false,
   arrangeRows:rows=>rows,labelOf:(p,title)=>title || p,iconImg:()=>'',SVG_CHEV:'',
   opened:new Set(),periodLabel:()=>'今天',loadingHtml:()=>'loading',
@@ -64,4 +64,14 @@ evaluate('homeScope="proxy"');
 assert.equal(evaluate('liveSites().length'),1);
 assert.equal(evaluate('statTotal(liveSites()[0])'),70);
 assert.equal(evaluate('liveSites()[0].programs.size'),2);
+// Filtered rows report their own count; global rates keep an explicit scope.
+for(const name of ['fmtSpeed','flowRouteKind','livePrograms','matchesHomeScope','visibleHomePrograms','homeEmptyText','renderLiveList','renderLiveSites','liveSummary']) vm.runInContext(source(name),context);
+context.homeDimension='program';context.homeScope='all';context.query=()=> 'no-match';context.hit=()=>false;context.staleData=()=>false;
+context.last={live:{proxy_down:2048,proxy_up:0,direct_down:1024,direct_up:0,eaters:[]},flows:[{process:'one',remote:'one.example:443',path:'proxy'},{process:'two',remote:'two.example:443',path:'direct'}]};
+const tr=context.tr;
+assert.ok(evaluate('liveSummary()').includes(tr('全部连接速率 · 不随列表筛选变化')));
+assert.ok(evaluate('renderLiveList()').includes(tr`当前显示 ${0} / 共 ${2} 个程序（不含已忽略程序）`));
+context.homeDimension='site';assert.ok(evaluate('renderLiveList()').includes(tr`当前显示 ${0} / 共 ${2} 个网站（不含已忽略程序）`));
+context.prefs=()=>({pinned:['two']});vm.runInContext(source('arrangeRows'),context);
+assert.equal(evaluate('livePrograms().map(p=>p.process).join()'),'two,one','pinning affects the live list, not the usage ranking');
 console.log('PASS UI attribution: host matching, proxy sorting, inverse drilldown, route filtering');

@@ -125,11 +125,15 @@ class AppContext:
         )
         self.shutdown = Shutdown(self.stop, lambda: self.collector.threads, self.store, self.icons.close)
         self._shutdown_in_progress = False
+        self._lifecycle_lock = threading.RLock()
+        self._update_sample_locked = False
         self.updater = Updater(
             repo=GITHUB_REPO,
             current=APP_VERSION,
             install_path=install_exe_path,
             refuse=self._update_refused,
+            prepare_restart=self.prepare_update_restart,
+            cancel_restart=self.cancel_update_restart,
             on_restart=self.shutdown_after_update,
         )
 
@@ -223,21 +227,93 @@ class AppContext:
     def _update_refused() -> str:
         if is_dev_instance():
             return "开发实例（设置了 FLASHMONITOR_DATA_DIR）不做在线更新"
+        if not frozen():
+            return "源码运行不支持在线安装更新，请在 GitHub 获取源码或安装包"
         return ""
 
     def close_store(self, timeout: float = 8.0) -> bool:
         """Refuse exit on pending producers/save failure; keep memory and DB available for retry."""
-        ok = self.shutdown.finish(timeout)
+        with self._lifecycle_lock:
+            ok = self.shutdown.finish(timeout)
         if not ok:
             fmlog.app_log(self.shutdown.error or '退出正在处理中')
         return ok
 
+    def prepare_update_restart(self) -> str:
+        """Freeze producers and confirm final persistence without stopping recoverable workers."""
+        if not self._lifecycle_lock.acquire(blocking=False):
+            return "正在退出或准备更新，请稍后重试"
+        if self.stop.is_set() or self._shutdown_in_progress:
+            self._lifecycle_lock.release()
+            return "正在退出或准备更新，请稍后重试"
+        self._shutdown_in_progress = True
+        if not self.collector._sample_lock.acquire(timeout=8.0):
+            self._shutdown_in_progress = False
+            self._lifecycle_lock.release()
+            return "采集任务仍在进行，未启动更新；请稍后重试"
+        self._update_sample_locked = True
+        try:
+            if self.store.close() is False:
+                raise OSError("最终保存未确认")
+        except Exception as exc:
+            recovery_error = self.cancel_update_restart()
+            return "更新前保存失败：" + str(exc) + ("；" + recovery_error if recovery_error else "；采集已恢复，可重试")
+        return ""
+
+    def cancel_update_restart(self) -> str:
+        """Reopen a successfully closed store after launch failure, keeping live accounting baselines."""
+        if not self._update_sample_locked:
+            return ""
+        error = ""
+        try:
+            # Keep the TrafficStore object: collector, ranks and tray retain references to it.
+            with self.store._flush_lock, self.store.db.lock:
+                if self.store.db.conn is None:
+                    # Preserve the DB object/lock: a reader may already be waiting on it.
+                    self.store.db.conn = self.store.db._connect(str(self.store.db.path))
+                details = self.store.site_details
+                if details is not None and details._closed:
+                    with details._io, details._lock:
+                        reopened = type(details)(details.path, policy=details.policy, clock=details.clock)
+                        details.conn = reopened.conn
+                        details.error, details.partial = reopened.error, reopened.partial
+                        details.since, details.dropped = reopened.since, reopened.dropped
+                        details._closed = False
+                        if details.conn is None:
+                            error = "程序累计采集已恢复，但网站明细暂不可用：" + details.error
+                with self.store.lock:
+                    self.store._closed = False
+            self.ranks.invalidate()
+        except Exception as exc:
+            error = "采集尚未恢复，请检查数据目录后重启：" + str(exc)
+            fmlog.log_exception("更新取消后恢复采集", exc)
+        finally:
+            self._shutdown_in_progress = False
+            self._update_sample_locked = False
+            self.collector._sample_lock.release()
+            self._lifecycle_lock.release()
+        return error
+
     def shutdown_after_update(self) -> None:
-        time.sleep(0.5)
-        if not self.close_store():
-            if self.shell is not None:
-                self.shell.show()
-            return
+        """Commit only after save and helper launch; the calling thread owns the sample lock."""
+        if not self._update_sample_locked or not self.store._closed:
+            raise RuntimeError("尚未确认更新前保存，未退出")
+        ready = threading.Event()
+        worker = threading.Thread(target=lambda: (ready.wait(), self._exit_after_update()), daemon=True, name="update-restart")
+        worker.start()
+        self.stop.set()
+        self.shutdown.complete = True
+        self._update_sample_locked = False
+        self.collector._sample_lock.release()
+        self._lifecycle_lock.release()
+        ready.set()
+
+    def _exit_after_update(self) -> None:
+        time.sleep(0.5)  # Allow the installing request to return its confirmed result.
+        try:
+            self.icons.close()
+        except Exception as exc:
+            fmlog.log_exception("更新退出图标清理", exc)
         if self.shell is not None:
             try:
                 self.shell.close()
@@ -272,30 +348,45 @@ class MonitorApi:
 
     def snapshot(self, view: str, period: str) -> dict[str, Any]:
         c = self.ctx
-        result = build_view(
-            view,
-            period,
-            state=c.live.get(),
-            store=c.store,
-            ranks=c.ranks,
-            prefs=c.settings.ui_prefs(),
-            sub=c.subinfo.public(),
-        )
-        shutdown = getattr(c, 'shutdown', None)
-        if shutdown is not None and not shutdown.complete:
-            if shutdown.error:
+        lifecycle = getattr(c, '_lifecycle_lock', None)
+        busy = {'error': '正在退出或准备更新，请稍后重试', 'busy': True}
+        if lifecycle is not None and not lifecycle.acquire(blocking=False):
+            return busy
+        try:
+            shutdown = getattr(c, 'shutdown', None)
+            if (getattr(c, '_update_sample_locked', False)
+                    or getattr(c, '_shutdown_in_progress', False)
+                    or shutdown is not None and shutdown.complete):
+                return busy
+            result = build_view(
+                view,
+                period,
+                state=c.live.get(),
+                store=c.store,
+                ranks=c.ranks,
+                prefs=c.settings.ui_prefs(),
+                sub=c.subinfo.public(),
+            )
+            if shutdown is not None and shutdown.error:
                 result['error'] = shutdown.error
-            elif getattr(c, '_shutdown_in_progress', False):
-                result['error'] = '正在退出：停止新采集并等待最终保存。'
-        result['manual_refresh_supported'] = True
-        return result
+            result['manual_refresh_supported'] = True
+            return result
+        finally:
+            if lifecycle is not None:
+                lifecycle.release()
 
     def refresh_data(self, body: dict[str, Any]) -> dict[str, Any]:
         if set(body) != {'period'} or body.get('period') not in PERIODS:
             raise DraftError('刷新参数无效')
         if not self._refresh_lock.acquire(blocking=False):
             return {'ok': False, 'busy': True, 'error': '正在刷新，请稍后'}
+        lifecycle = getattr(self.ctx, '_lifecycle_lock', None)
+        lifecycle_acquired = False
         try:
+            if lifecycle is not None:
+                lifecycle_acquired = lifecycle.acquire(blocking=False)
+                if not lifecycle_acquired:
+                    return {'ok': False, 'busy': True, 'error': '正在退出或准备更新，请稍后重试'}
             c = self.ctx
             if getattr(c, '_shutdown_in_progress', False) or getattr(c, 'stop', None) is not None and c.stop.is_set():
                 return {'ok': False, 'error': 'Monitor 正在退出，未刷新'}
@@ -313,6 +404,8 @@ class MonitorApi:
             fmlog.log_exception('手动刷新', exc)
             return {'ok': False, 'error': '读取连接、用量或节点失败，已保留原页面数据。'}
         finally:
+            if lifecycle_acquired:
+                lifecycle.release()
             self._refresh_lock.release()
 
     def settings(self) -> dict[str, Any]:
@@ -568,10 +661,12 @@ class MonitorApi:
         return {'opened': True}
 
     def update_info(self) -> dict[str, Any]:
+        install_error = self.ctx._update_refused()
+        capability = {"install_supported": not bool(install_error), "install_error": install_error}
         try:
-            return {**self.ctx.updater.latest(), "frozen": frozen()}
+            return {**self.ctx.updater.latest(), "frozen": frozen(), **capability}
         except Exception as exc:  # noqa: BLE001 - 网络、GitHub 限流等，原样告诉页面
-            return {"ok": False, "current": APP_VERSION, "frozen": frozen(), "error": str(exc), "newer": False}
+            return {"ok": False, "current": APP_VERSION, "frozen": frozen(), "error": str(exc), "newer": False, **capability}
 
     def apply_update(self) -> dict[str, Any]:
         try:
@@ -586,9 +681,22 @@ class MonitorApi:
     def export_csv(self) -> bytes:
         return self.ctx.collector.export_csv()
 
-    def reset(self) -> None:
-        self.ctx.store.reset()
-        self.ctx.ranks.invalidate()
+    def reset(self) -> dict[str, Any]:
+        lifecycle = getattr(self.ctx, '_lifecycle_lock', None)
+        busy = {"ok": False, "persisted": False, "pending": False, "busy": True,
+                "error": "正在退出或准备更新，未清零；请稍后重试。"}
+        if lifecycle is not None and not lifecycle.acquire(blocking=False):
+            return busy
+        try:
+            if (getattr(self.ctx, '_shutdown_in_progress', False)
+                    or getattr(self.ctx, 'stop', None) is not None and self.ctx.stop.is_set()):
+                return busy
+            result = self.ctx.store.reset()
+            self.ctx.ranks.invalidate()
+            return result
+        finally:
+            if lifecycle is not None:
+                lifecycle.release()
 
     def open_data(self) -> bool:
         return _open_folder(self.ctx.data_dir)
@@ -616,6 +724,33 @@ def _tray_pulse(ctx: AppContext, tray: WinTray) -> TrayPulse:
     return TrayPulse(tray, live_view=ctx.store.live_view, alerts=ctx.live.alerts, settings=lambda: ctx.settings.data)
 
 
+def _notify_first_hide(ctx: AppContext, tray: WinTray | None) -> bool:
+    """Submit the first-use explanation once; a failed notification remains retryable."""
+    marker = ctx.data_dir / "tray-hint-submitted"
+    if not ctx.settings.data.get("notify_hide") and marker.is_file():
+        return True
+    if tray is None or not getattr(tray, "hwnd", None) or getattr(tray, "_nid", None) is None:
+        return False
+    try:
+        submitted = tray.balloon(
+            f"{APP_NAME} 仍在后台采集",
+            "单击右下角托盘图标重新打开；彻底退出请右键托盘图标，选择“退出 Flash Monitor”。",
+        )
+        if submitted is not True:
+            return False
+        # Records acceptance by Windows, not whether the user has seen a balloon.
+        try:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            temporary = marker.with_suffix(".tmp")
+            temporary.write_text("submitted\n", encoding="utf-8")
+            temporary.replace(marker)
+        except OSError:
+            pass
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def run_gui(ctx: AppContext, url: str, *, minimized: bool = False) -> None:
     from webview_win import FlashDesktop, prepare_process
 
@@ -624,21 +759,20 @@ def run_gui(ctx: AppContext, url: str, *, minimized: bool = False) -> None:
     icon = resource_dir() / "icon.ico"
     holder: dict[str, Any] = {"tray": None}
 
-    def first_hide() -> None:
-        tray = holder["tray"]
-        if tray is None or not ctx.settings.data.get("notify_hide"):
-            return
-        try:
-            tray.balloon(f"{APP_NAME} 还在采集", "点右下角托盘图标可打开窗口。")
-        except Exception:  # noqa: BLE001
-            pass
+    def first_hide() -> bool:
+        return _notify_first_hide(ctx, holder["tray"])
 
     def on_quit() -> bool:
-        if ctx.shutdown.complete:
-            return True
-        if ctx._shutdown_in_progress:
+        if not ctx._lifecycle_lock.acquire(blocking=False):
             return False
-        ctx._shutdown_in_progress = True
+        try:
+            if ctx.shutdown.complete:
+                return True
+            if ctx._shutdown_in_progress:
+                return False
+            ctx._shutdown_in_progress = True
+        finally:
+            ctx._lifecycle_lock.release()
         def finish():
             ok = ctx.close_store()
             tray = holder['tray']

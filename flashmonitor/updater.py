@@ -40,7 +40,7 @@ DEFENDER_HINT = (
     "或给 %LOCALAPPDATA%\\FlashMonitor 加排除项后再装。"
 )
 
-# 等旧进程（最多 2 分钟）→ 替换（文件可能还被占用，重试 15 次）→ 启动 → 删掉自己
+# Wait/replace failures retain the script, staged file and a diagnostic; never start the old executable.
 UPDATE_SCRIPT = "\r\n".join(
     [
         "@echo off",
@@ -49,15 +49,20 @@ UPDATE_SCRIPT = "\r\n".join(
         'set "SRC=%FM_SRC%"',
         'set "DST=%FM_DST%"',
         'set "WORK=%FM_WORK%"',
+        'set "DIAG=%DST%.update-error.txt"',
         "set /a TRIES=0",
         ":wait",
-        'tasklist /fi "PID eq %WAIT_PID%" 2>nul | findstr /c:" %WAIT_PID% " >nul',
+        'tasklist /fi "PID eq %WAIT_PID%" > "%DIAG%.process.tmp" 2>nul',
+        "if errorlevel 1 goto probe_failed",
+        'findstr /c:" %WAIT_PID% " "%DIAG%.process.tmp" >nul',
+        "if errorlevel 2 goto probe_failed",
         "if errorlevel 1 goto gone",
         "set /a TRIES+=1",
-        "if %TRIES% geq 120 goto gone",
+        "if %TRIES% geq 120 goto wait_failed",
         "timeout /t 1 /nobreak >nul",
         "goto wait",
         ":gone",
+        'del "%DIAG%.process.tmp" >nul 2>&1',
         "set /a MOVES=0",
         ":move",
         "timeout /t 1 /nobreak >nul",
@@ -65,11 +70,23 @@ UPDATE_SCRIPT = "\r\n".join(
         "if not errorlevel 1 goto start",
         "set /a MOVES+=1",
         "if %MOVES% lss 15 goto move",
+        "goto move_failed",
         ":start",
+        'if exist "%DIAG%" del "%DIAG%" >nul 2>&1',
         "if defined FM_NO_START goto cleanup",
         'if exist "%DST%" start "" /d "%WORK%" "%DST%" --gui',
         ":cleanup",
         '(goto) 2>nul & del "%~f0"',
+        ":wait_failed",
+        'del "%DIAG%.process.tmp" >nul 2>&1',
+        '> "%DIAG%" echo Update stopped: the previous process did not exit within 120 seconds. No executable was replaced or started.',
+        "exit /b 1",
+        ":probe_failed",
+        '> "%DIAG%" echo Update stopped: the previous process could not be checked. No executable was replaced or started.',
+        "exit /b 1",
+        ":move_failed",
+        '> "%DIAG%" echo Update stopped: executable replacement failed after 15 attempts. The staged file and update script were retained. No executable was started.',
+        "exit /b 1",
         "",
     ]
 )
@@ -223,6 +240,8 @@ class Updater:
         current: str,
         install_path: Callable[[], Path],
         refuse: Callable[[], str] | None = None,
+        prepare_restart: Callable[[], str] | None = None,
+        cancel_restart: Callable[[], str] | None = None,
         on_restart: Callable[[], None] | None = None,
         opener: OpenerDirector | None = None,
         survive_wait: float = 1.6,
@@ -232,6 +251,8 @@ class Updater:
         self.current = current
         self._install_path = install_path
         self._refuse = refuse or (lambda: "")
+        self._prepare_restart = prepare_restart or (lambda: "")
+        self._cancel_restart = cancel_restart or (lambda: "")
         self._on_restart = on_restart or (lambda: None)
         self._opener = opener
         self._survive_wait = survive_wait
@@ -256,6 +277,8 @@ class Updater:
             return {"ok": False, "error": "已经在更新"}
         try:
             info = self.latest(force=True)
+            if not info.get("newer"):
+                return {"ok": False, "error": "当前已是最新版本，无需安装更新"}
             url = str(info.get("exe_url") or "")
             if not url:
                 return {"ok": False, "error": "最新发行版里还没有 FlashMonitor.exe，过一会儿再试"}
@@ -277,9 +300,30 @@ class Updater:
             if not file_survived(staging, self._survive_wait):
                 return {"ok": False, "error": "新版本下载后被删了。" + DEFENDER_HINT}
             script = write_update_script(dest.with_name(SCRIPT_NAME))
-            launch_update_script(script, wait_pid=os.getpid(), src=staging, dst=dest, work=dest.parent)
+            try:
+                preparation_error = self._prepare_restart()
+            except Exception as exc:
+                recovery_error = self._cancel_restart()
+                return {"ok": False, "error": "更新前保存失败：" + str(exc) +
+                        ("；" + recovery_error if recovery_error else "；采集已恢复，可重试")}
+            if preparation_error:
+                return {"ok": False, "error": preparation_error}
+            helper = None
+            try:
+                helper = launch_update_script(script, wait_pid=os.getpid(), src=staging, dst=dest, work=dest.parent)
+                # This short callback commits the prepared shutdown and schedules exit.
+                # Run it on the preparing thread so it can release its sample lock.
+                self._on_restart()
+            except Exception as exc:
+                if helper is not None:
+                    try:
+                        helper.terminate()
+                    except Exception:
+                        pass
+                recovery_error = self._cancel_restart()
+                return {"ok": False, "error": "未能启动更新重启：" + str(exc) +
+                        ("；" + recovery_error if recovery_error else "；采集已恢复，可重试")}
             fmlog.app_log(f"更新到 {info.get('tag')}：已下载并校验（sha256 {sha[:16]}…），退出后替换")
-            threading.Thread(target=self._on_restart, daemon=True, name="update-restart").start()
             return {"ok": True, "restarting": True, "latest": info.get("latest") or "", "path": str(dest)}
         finally:
             self._lock.release()

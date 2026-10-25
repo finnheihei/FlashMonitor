@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
 
 from flashmonitor.store import TrafficStore
@@ -148,6 +149,53 @@ class ViewsTest(unittest.TestCase):
 
 
 class RankCacheTest(unittest.TestCase):
+    def test_today_expires_at_midnight_before_ttl(self) -> None:
+        day = [date(2026, 10, 23)]
+        calls = []
+
+        def compute(period):
+            calls.append(period)
+            return {"upload": len(calls)}
+
+        cache = RankCache(compute, clock=lambda: 0, local_day=lambda: day[0])
+        first = cache.get("today")
+        cache.get("7d")
+        day[0] += timedelta(days=1)
+        second = cache.get("today")
+        cache.get("7d")
+        self.assertEqual(calls, ["today", "7d", "today"])
+        self.assertEqual(first["stats_day"], "2026-10-23")
+        self.assertEqual(second["stats_day"], "2026-10-24")
+
+    def test_today_read_spanning_midnight_recomputes_before_dating(self) -> None:
+        day = [date(2026, 10, 23)]
+        calls = []
+
+        def compute(period):
+            calls.append(period)
+            if len(calls) == 1:
+                day[0] += timedelta(days=1)
+                return {"upload": 100}
+            return {"upload": 0}
+
+        cache = RankCache(compute, local_day=lambda: day[0])
+        self.assertEqual(cache.get("today"), {"upload": 0, "stats_day": "2026-10-24"})
+        cache.get("today")
+        self.assertEqual(len(calls), 2)
+
+    def test_repeated_clock_changes_leave_no_cache_or_valid_quota_date(self) -> None:
+        day = [date(2026, 10, 23)]
+
+        def compute(period):
+            day[0] += timedelta(days=1)
+            return {"upload": 100}
+
+        cache = RankCache(compute, local_day=lambda: day[0])
+        self.assertEqual(cache.get("today")["stats_day"], "")
+        self.assertEqual(cache.computes, 2)
+        cache.get("today")
+        self.assertEqual(cache.computes, 4)
+
     def test_ttl_and_invalidate(self) -> None:
         now = [0.0]
         calls: list[str] = []

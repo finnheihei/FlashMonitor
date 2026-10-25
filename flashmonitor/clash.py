@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import json
 import hashlib
+import errno
 import threading
 import time
 from typing import Any, Callable
-from urllib.parse import quote
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlsplit
 from urllib.request import OpenerDirector, ProxyHandler, Request, build_opener
 
 from .parsing import as_int
@@ -20,6 +22,75 @@ DEFAULT_BASE = "http://127.0.0.1:9090"
 FALLBACK_BASES = ("http://127.0.0.1:9090", "http://127.0.0.1:9091", "http://127.0.0.1:9097")
 CONFIG_TTL = 20.0
 LISTEN_KEYS = ("mixed-port", "port", "socks-port", "redir-port", "tproxy-port")
+LINK_ERRORS = {
+    "auth_failed": "认证失败，请检查 Clash API 密钥是否与客户端一致。",
+    "connection_refused": "连接被拒绝，请确认客户端已运行、外部控制器已开启，并检查端口。",
+    "timeout": "连接超时，请检查控制器地址和网络状态后重试。",
+    "invalid_response": "该地址未返回有效的 Clash 连接列表，请确认填写的是外部控制器地址，而非代理端口。",
+    "http_error": "控制器返回 HTTP 错误，请检查客户端状态及外部控制器地址。",
+    "network_error": "网络连接失败，请检查地址、网络权限及客户端状态。",
+    "invalid_address": "外部控制器地址无效，请填写完整的 http:// 或 https:// 地址及有效端口。",
+}
+
+
+def _connection_payload(data: Any) -> dict[str, Any] | None:
+    if not isinstance(data, dict) or "connections" not in data:
+        return None
+    conns = data.get("connections")
+    if conns is None:
+        conns = []
+    if not isinstance(conns, list):
+        return None
+    return {
+        "connections": conns,
+        "uploadTotal": as_int(data.get("uploadTotal")),
+        "downloadTotal": as_int(data.get("downloadTotal")),
+    }
+
+
+def _diagnostic_base(base: str) -> str:
+    """Show only the origin; URLs and exceptions may contain credentials."""
+    try:
+        parts = urlsplit(base)
+        host, port = parts.hostname or "", parts.port
+        if parts.scheme not in ("http", "https") or not host or (port is not None and port < 1):
+            return ""
+        if any(ch.isspace() or ord(ch) < 32 for ch in host):
+            return ""
+        if ":" in host:
+            host = f"[{host}]"
+        return f"{parts.scheme}://{host}" + (f":{port}" if port is not None else "")
+    except ValueError:
+        return ""
+
+
+def _link_failure(exc: Exception) -> dict[str, Any]:
+    """Classify failures without returning exception text or response content."""
+    status = None
+    if isinstance(exc, HTTPError):
+        status = exc.code
+        if status in (401, 403):
+            code = "auth_failed"
+        elif status in (404, 405):
+            code = "invalid_response"
+        else:
+            code = "http_error"
+    elif isinstance(exc, json.JSONDecodeError):
+        code = "invalid_response"
+    else:
+        reason = exc.reason if isinstance(exc, URLError) else exc
+        error_number = getattr(reason, "errno", None)
+        winerror = getattr(reason, "winerror", None)
+        if isinstance(reason, TimeoutError) or error_number in (errno.ETIMEDOUT, 10060) or winerror == 10060:
+            code = "timeout"
+        elif isinstance(reason, ConnectionRefusedError) or error_number in (errno.ECONNREFUSED, 10061) or winerror == 10061:
+            code = "connection_refused"
+        else:
+            code = "network_error"
+    result = {"error_code": code, "error": LINK_ERRORS[code]}
+    if status is not None:
+        result["http_status"] = status
+    return result
 
 
 def local_opener() -> OpenerDirector:
@@ -99,19 +170,11 @@ class ClashClient:
                 data = self._get_json(url, 2.0 if i == 0 else 0.5)
             except Exception:  # noqa: BLE001 - 连不上 / 超时 / 不是 JSON：换下一个地址
                 continue
-            if not isinstance(data, dict) or "connections" not in data:
-                continue
-            conns = data.get("connections")
-            if conns is None:
-                conns = []
-            if not isinstance(conns, list):
+            payload = _connection_payload(data)
+            if payload is None:
                 continue
             self.remember_base(url)
-            return {
-                "connections": conns,
-                "uploadTotal": as_int(data.get("uploadTotal")),
-                "downloadTotal": as_int(data.get("downloadTotal")),
-            }
+            return payload
         return None
 
     def invalidate_config_cache(self) -> None:
@@ -221,20 +284,41 @@ class ClashClient:
             return {'available':False,'error':'无法核实核心版本/规则状态；未修改核心'}
 
     def test_link(self) -> dict[str, Any]:
+        """Test the configured address first and retain each fallback's diagnosis."""
         t0 = time.perf_counter()
-        payload = self.payload()
-        ms = int((time.perf_counter() - t0) * 1000)
-        if payload is None:
-            return {
-                "ok": False,
-                "ms": ms,
-                "error": "连不上外部控制器。在 FlClash 或 Clash Verge 打开外部控制器，默认地址 http://127.0.0.1:9090。",
-            }
+        configured = str(self._base() or DEFAULT_BASE).rstrip("/")
+        bases = [configured, *(base for base in self.base_urls() if base != configured)]
+        attempts: list[dict[str, Any]] = []
+        for i, base in enumerate(bases):
+            display_base = _diagnostic_base(base)
+            attempt: dict[str, Any] = {"base": display_base, "ok": False}
+            if not display_base:
+                attempt.update(error_code="invalid_address", error=LINK_ERRORS["invalid_address"])
+                attempts.append(attempt)
+                continue
+            try:
+                payload = _connection_payload(self._get_json(base + "/connections", 2.0 if i == 0 else 0.5))
+            except Exception as exc:  # noqa: BLE001 - report safe categories, then try the next address
+                attempt.update(_link_failure(exc))
+            else:
+                if payload is not None:
+                    self.remember_base(base)
+                    attempts.append({"base": display_base, "ok": True})
+                    return {
+                        "ok": True,
+                        "ms": int((time.perf_counter() - t0) * 1000),
+                        "connections": len(payload["connections"]),
+                        "base": display_base,
+                        "attempts": attempts,
+                    }
+                attempt.update(error_code="invalid_response", error=LINK_ERRORS["invalid_response"])
+            attempts.append(attempt)
+        # Keep the configured address's diagnosis primary; the UI can also show
+        # all fallback failures, rather than masking a bad secret with a dead port.
         return {
-            "ok": True,
-            "ms": ms,
-            "connections": len(payload.get("connections") or []),
-            "base": self.base_ok or str(self._base() or ""),
+            **attempts[0],
+            "ms": int((time.perf_counter() - t0) * 1000),
+            "attempts": attempts,
         }
 
     # ---------- 采样线程最近一次的结果 ----------

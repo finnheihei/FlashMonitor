@@ -58,8 +58,9 @@ class FakeApp:
     def export_csv(self) -> bytes:
         return "\ufefflane,process\r\n".encode("utf-8")
 
-    def reset(self) -> None:
+    def reset(self) -> dict:
         self._rec("reset")
+        return {"ok": True, "persisted": True, "pending": False}
 
     def open_data(self) -> bool:
         self._rec("open_data")
@@ -163,7 +164,7 @@ class RoutesTest(ServerTestBase):
         self.assertTrue(body.startswith("\ufeff".encode("utf-8")))
 
     def test_simple_posts(self) -> None:
-        self.assertEqual(self.post_json("/api/reset"), (200, {"ok": True}))
+        self.assertEqual(self.post_json("/api/reset"), (200, {"ok": True, "persisted": True, "pending": False}))
         self.assertEqual(self.post_json("/api/open-data"), (200, {"ok": True}))
         self.assertEqual(self.post_json("/api/open-install"), (500, {"ok": False}))
         self.assertEqual(self.post_json("/api/refresh-sub"), (200, {"ok": True}))

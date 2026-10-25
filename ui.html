@@ -196,6 +196,17 @@
   .note.bad:hover { border-color: #eaa8af; }
   .note.warn { background: var(--warn-soft); border-color: var(--warn-line); color: var(--warn); }
   .note.warn .dot { background: #d29922; }
+  .notice-group { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); font-size: 12.5px; }
+  .notice-group > summary { min-height: 38px; padding: 8px 12px; cursor: pointer; color: var(--ink-2); }
+  .notice-group > summary:hover { background: var(--panel-2); border-radius: 10px; }
+  .notice-summary-content { display: inline-flex; align-items: center; gap: 10px; width: calc(100% - 20px); vertical-align: middle; }
+  .notice-summary-action { margin-left: auto; color: var(--mute); font-size: 12px; }
+  .notice-new-count { color: var(--brand); font-weight: 600; }
+  .notice-items { display: flex; flex-direction: column; gap: 6px; padding: 0 8px 8px; }
+  .notice-items .note { box-shadow: none; }
+  .notice-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; padding: 0 8px 8px; }
+  .notice-actions button { margin-left: auto; }
+  .notice-error > span { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
 
   /* ---------- 工具条 ---------- */
   .tools { display: none; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
@@ -405,6 +416,9 @@
   .set-nav button:hover { background: var(--line-2); color: var(--ink); }
   .set-nav button.on { background: var(--panel); color: var(--ink); font-weight: 600; box-shadow: 0 0 0 1px var(--line); }
   .set-body { padding: 20px 24px 24px; min-width: 0; }
+  .settings-advanced { margin-top:24px; padding-top:16px; border-top:1px solid var(--line); }
+  .settings-advanced > summary { cursor:pointer; color:var(--ink-2); width:fit-content; }
+  .settings-advanced[open] > summary { margin-bottom:14px; }
   .settings h2 { margin: 26px 0 8px; font: 600 14px var(--display); display: flex; align-items: center; gap: 10px; }
   .settings h2:first-child { margin-top: 0; }
   .settings .row { display: flex; gap: 10px; align-items: flex-start; margin: 12px 0; cursor: pointer; }
@@ -671,6 +685,8 @@
   .page-title h2 { margin:0; font:600 25px/1.3 var(--display); letter-spacing:-.04em; }
   .page-title p { margin:6px 0 0; color:var(--mute); font-size:13px; }
   .context-controls { width:100%; display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-top:4px; }
+  [data-result-filter] { min-width:0; overflow-wrap:anywhere; }
+  [data-result-filters] .acts { margin:0; }
   .filter-options { margin-bottom:20px; }
   .filter-options .tools { margin:0; gap:10px; }
   .period { background:#e9edf2; padding:3px; border-radius:8px; }
@@ -713,6 +729,19 @@
   .detail-foot .coverage-note { margin:0 0 0 48px; }
   .identity-fold { margin:16px 0 4px; color:var(--mute); font-size:12px; }
   .live-summary { margin-bottom:24px; }
+  .subscription-summary { margin:-10px 0 24px; border:1px solid var(--line); border-radius:10px; background:var(--panel); font-size:12px; font-variant-numeric:tabular-nums; }
+  .subscription-summary > summary { display:flex; align-items:center; flex-wrap:wrap; gap:8px 18px; padding:12px 16px; cursor:pointer; list-style:none; color:var(--mute); }
+  .subscription-summary > summary::-webkit-details-marker { display:none; }
+  .subscription-summary > summary::after { content:'›'; margin-left:auto; font-size:20px; line-height:1; }
+  .subscription-summary[open] > summary::after { transform:rotate(90deg); }
+  .subscription-summary > summary:focus-visible { outline:2px solid var(--brand); outline-offset:3px; border-radius:8px; }
+  .subscription-summary b,.subscription-name { color:var(--ink-2); font-weight:500; }
+  .subscription-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:200px; }
+  .subscription-summary .k-r { margin-left:0; }
+  .subscription-detail { border-top:1px solid var(--line-2); padding:14px 16px; }
+  .subscription-status { flex-basis:100%; line-height:1.5; overflow-wrap:anywhere; }
+  .subscription-empty .cell { padding:12px 16px; display:flex; flex-direction:column; gap:8px; }
+  .subscription-detail .cell { display:flex; flex-direction:column; gap:8px; max-width:480px; }
   .compact-live .program-pick .sub { font-size:12px; font-weight:400; }
   .compact-live .program-detail td { padding:20px 28px 24px; background:var(--panel-2); }
   .program-detail #well-side { display:block; }
@@ -779,8 +808,6 @@
       <div class="view-popover">
         <button type="button" data-live-style="list">列表视图</button>
         <button type="button" data-live-style="balls">小球视图</button>
-        <button type="button" data-connection-entry>连接设置</button>
-        <button type="button" class="upd" id="btn-update">检查更新</button>
       </div>
     </details>
     <button type="button" class="upd" id="btn-settings" onclick="gotoFilter('settings')">设置</button>
@@ -811,8 +838,8 @@
     <div class="period" id="periods" role="group" aria-label="时段"></div>
     <select id="sort" class="btn" aria-label="流量筛选" title="筛选有对应流量的条目，并按该类用量排序；表格保留代理、直连对比">
       <option value="all">全部流量</option>
-      <option value="proxy">代理优先</option>
-      <option value="direct">直连优先</option>
+      <option value="proxy">有代理流量</option>
+      <option value="direct">有直连流量</option>
     </select>
     <button type="button" class="btn" id="btn-leak" aria-pressed="false">只看绕过 TUN</button>
     <span class="tools-gap" aria-hidden="true"></span>
@@ -825,6 +852,18 @@
   <div id="main"></div>
 </div>
 </div>
+<dialog id="update-dialog" class="rule-dialog" aria-labelledby="update-title">
+  <div class="rule-head"><h2 id="update-title">检查更新</h2><button type="button" onclick="document.getElementById('update-dialog').close()">关闭</button></div>
+  <div class="rule-scroll">
+    <p id="update-status" role="status"></p>
+    <p id="update-error" class="rule-error" role="alert" hidden></p>
+    <pre id="update-notes" hidden></pre>
+  </div>
+  <div class="rule-actions">
+    <button type="button" id="update-install" onclick="installUpdate()" hidden>下载并重启</button>
+    <button type="button" onclick="openGithub()">GitHub</button>
+  </div>
+</dialog>
 <dialog id="rule-dialog" class="rule-dialog" aria-labelledby="rule-title">
   <div class="rule-head"><h2 id="rule-title">进程规则草稿</h2><button type="button" id="rule-cancel" autofocus>取消</button></div>
   <p id="rule-status" role="status">未应用</p>
@@ -858,7 +897,7 @@
   <div class="rule-actions"><button type="button" id="draft-library-refresh">刷新</button></div>
 </dialog>
 <dialog id="connection-dialog" class="rule-dialog" aria-labelledby="connection-title">
-  <div class="rule-head"><h2 id="connection-title">连接设置</h2><button type="button" id="connection-close" autofocus>关闭</button></div>
+  <div class="rule-head"><h2 id="connection-title">IPv6 屏蔽</h2><button type="button" id="connection-close" autofocus>关闭</button></div>
   <div class="rule-scroll">
     <p id="connection-target" hidden></p>
     <div id="connection-picker">
@@ -867,9 +906,11 @@
       <input id="connection-domain" type="text" aria-label="网站域名" placeholder="输入域名，例如 example.com" maxlength="2048" hidden>
     </div>
     <label id="connection-subdomains-field" hidden><input id="connection-subdomains" type="checkbox"> 包含子域名</label>
-    <div class="ipv6-setting"><h3 id="scoped-ipv6-title" title="仅限制已识别的 IPv6 新连接，不保证应用自动回退 IPv4。">屏蔽 IPv6</h3><button id="scoped-ipv6-enable" class="ipv6-switch" type="button" role="switch" aria-checked="false" aria-labelledby="scoped-ipv6-title" aria-describedby="scoped-ipv6-state" disabled></button></div>
+    <div class="ipv6-setting"><h3 id="scoped-ipv6-title">单独屏蔽 IPv6</h3><button id="scoped-ipv6-enable" class="ipv6-switch" type="button" role="switch" aria-checked="false" aria-labelledby="scoped-ipv6-title" aria-describedby="scoped-ipv6-state scoped-ipv6-coverage" disabled></button></div>
     <div class="ipv6-status"><p id="scoped-ipv6-state" class="sub" role="status">正在检查…</p><button id="scoped-ipv6-refresh" type="button" hidden>重试</button></div>
-    <p class="sub ipv6-hint">需保持 Monitor 运行，切换可能短暂影响连接。</p>
+    <div id="scoped-ipv6-coverage" hidden></div>
+    <p class="sub ipv6-hint">仅影响新建 IPv6 连接；已有连接不变，应用不一定自动改用 IPv4。</p>
+    <p class="sub ipv6-hint">保持 Monitor 运行以维护规则；退出不会自动撤销。要恢复，请关闭对应规则。切换可能短暂影响连接。</p>
     <details id="scoped-ipv6-saved" class="connection-fold" hidden><summary id="scoped-ipv6-saved-title">已设置</summary><div id="scoped-ipv6-list"></div></details>
   </div>
 </dialog>
@@ -903,6 +944,32 @@
 // Translate authored UI strings only. Template substitutions (domains, paths,
 // node names, rules and controller messages) are never translated or rewritten.
 const UI_MESSAGES = {
+  "当前显示": "Showing",
+  "个程序（不含已忽略程序）": "apps (ignored apps excluded)",
+  "个网站（不含已忽略程序）": "websites (ignored apps excluded)",
+  "正在读取设置…": "Loading settings…",
+  "隐藏到托盘，继续采集": "Hide to tray and keep collecting",
+  "当前显示 ": "Showing ",
+  " / 共 ": " / total ",
+  " 个程序（不含已忽略程序）": " apps (ignored apps excluded)",
+  " 个网站（不含已忽略程序）": " websites (ignored apps excluded)",
+  "全部连接速率 · 不随列表筛选变化": "All connection rates · Independent of list filters",
+  "未忽略的活跃程序": "Active apps, excluding ignored",
+  "单独屏蔽 IPv6": "Block IPv6 for this rule",
+  "仅影响新建 IPv6 连接；已有连接不变，应用不一定自动改用 IPv4。": "Only new IPv6 connections are affected. Existing connections stay open; apps may not fall back to IPv4.",
+  "保持 Monitor 运行以维护规则；退出不会自动撤销。要恢复，请关闭对应规则。切换可能短暂影响连接。": "Keep Monitor running to maintain rules. Exiting does not remove them; turn off the relevant rule to restore access. Applying changes may briefly interrupt connections.",
+  "本条未开启 · 其他规则仍在限制": "This rule is off · Other rules still restrict access",
+  "本条未开启 · 相关规则待核实": "This rule is off · Related rules await verification",
+  "相关规则：": "Related rule: ",
+  "覆盖此对象": "Covers this target",
+  "部分连接受限": "Some connections are restricted",
+  "查看相关规则": "View related rules",
+  "正在刷新，暂显示上次数据": "Refreshing; showing previous data",
+  "正在读取订阅…": "Loading subscription…",
+  "刷新失败，显示上次数据": "Refresh failed; showing previous data",
+  "无法读取用量，请检查订阅地址或稍后重试。": "Could not read usage. Check the subscription URL or retry later.",
+  "缓存数据": "Cached data",
+  "更新于 ": "Updated at ",
   "实时": "Live",
   "用量": "Usage",
   "正在读取…": "Loading…",
@@ -962,6 +1029,9 @@ const UI_MESSAGES = {
   "当前结果": "Results",
   "节点流量": "Node traffic",
   "代理用量": "Proxy usage",
+  "直连用量": "Direct usage",
+  "总用量": "Total usage",
+  "下载 + 上传": "Download + upload",
   "经过代理节点的流量": "Traffic through proxy nodes",
   "占当前结果": "Share of results:",
   "等待流量记录": "Waiting for traffic records",
@@ -972,6 +1042,7 @@ const UI_MESSAGES = {
   "仅统计已观察到的流量 · 查看范围": "Only observed traffic is counted · View coverage",
   "没有匹配的结果，请调整搜索或筛选。": "No matches. Adjust your search or filters.",
   "这个时段还没有符合筛选的流量。": "No matching traffic in this period.",
+  "这个时段还没有流量记录。": "No traffic has been recorded in this period.",
   "网站 · 展开查看程序": "Website · Expand to see apps",
   "程序 · 展开查看网站": "App · Expand to see websites",
   "操作": "Actions",
@@ -995,6 +1066,7 @@ const UI_MESSAGES = {
   "现在没有绕过 TUN连接": "No connections are bypassing TUN",
   "没有匹配的连接": "No matching connections",
   "没有连接": "No connections",
+  "暂无最近结束的连接": "No recently closed connections",
   "出站": "Outbound",
   "远端": "Remote",
   "规则": "Rule",
@@ -1011,6 +1083,11 @@ const UI_MESSAGES = {
   "打不开安装目录": "Could not open the installation folder",
   "没能打开浏览器": "Could not open the browser",
   "正在检测…": "Testing…",
+  "正在保存连接设置…": "Saving connection settings…",
+  "连接设置已更改，请重新测试。": "Connection settings changed. Please test again.",
+  "连接设置未保存，已停止测试。": "Connection settings were not saved. The test was stopped.",
+  "其他设置已保存，开机启动项未更新：": "Other settings were saved, but startup settings were not updated: ",
+  "设置没存上：": "Could not save settings: ",
   "已接通": "Connected",
   "条连接 ·": "connections ·",
   "连不上": "Could not connect",
@@ -1028,6 +1105,29 @@ const UI_MESSAGES = {
   "已下载 v": "Downloaded v",
   "马上重启": "Restarting now",
   "更新失败：": "Update failed:",
+  "下载并重启": "Download and restart",
+  "发现新版本 v": "New version available: v",
+  "下载完成后会保存数据并重启。": "After downloading, your data will be saved and the app will restart.",
+  "源码运行不支持应用内更新，请在 GitHub 获取新版源码或安装包。": "In-app updates are unavailable when running from source. Get updated source code or an installer on GitHub.",
+  "更新尚未进入重启阶段，请重试。": "The update has not reached the restart stage. Please try again.",
+  "已确认保存，正在重启…": "Data saved. Restarting…",
+  "查看版本说明，再选择是否下载并重启。": "Review the release notes, then choose whether to download and restart.",
+  "源码运行不支持在线安装更新，请在 GitHub 获取源码或安装包": "In-app installation is unavailable when running from source. Get the source or installer on GitHub.",
+  "开发实例（设置了 FLASHMONITOR_DATA_DIR）不做在线更新": "In-app updates are unavailable for development instances using FLASHMONITOR_DATA_DIR.",
+  "正在退出或准备更新，请稍后重试": "The app is exiting or preparing an update. Try again shortly.",
+  "采集任务仍在进行，未启动更新；请稍后重试": "Collection is still in progress. The update has not started; try again shortly.",
+  "已经在更新": "An update is already in progress",
+  "当前已是最新版本，无需安装更新": "Already up to date. No update needs to be installed.",
+  "更新前保存失败：": "Could not save before updating: ",
+  "未能启动更新重启：": "Could not start the update restart: ",
+  "采集尚未恢复，请检查数据目录后重启：": "Collection could not resume. Check the data folder and restart: ",
+  "程序累计采集已恢复，但网站明细暂不可用：": "App usage collection has resumed, but website details are temporarily unavailable: ",
+  "采集已恢复，可重试": "Collection has resumed. You can retry.",
+  "最终保存未确认": "Final save was not confirmed",
+  "尚未确认更新前保存，未退出": "The app has not exited because the final save is not confirmed",
+  "统计库已关闭，未继续采集": "The usage database is closed. Collection did not continue.",
+  "统计库已关闭，未刷新": "The usage database is closed. Refresh did not run.",
+  "无法重新打开累计数据库": "Could not reopen the usage database",
   "常规": "General",
   "通知": "Notifications",
   "接入": "Connection",
@@ -1066,6 +1166,19 @@ const UI_MESSAGES = {
   "规则草稿": "Rule drafts",
   "旧 IPv6 方案": "Legacy IPv6 plans",
   "统计数据保留天数": "Statistics retention (days)",
+  "高级维护": "Advanced maintenance",
+  "仅影响总体时段统计，连接记录文件不会随之删除。": "Applies to overall time-based statistics. Connection log files are not deleted by this setting.",
+  "网站明细保留范围": "Website detail retention",
+  "按程序的网站明细固定保留 7 天，最多 20,000 行、8 MiB。超限可能缺少部分网站，程序总累计保留。": "Per-app website details are kept for 7 days, up to 20,000 rows and 8 MiB. Limits may remove some website details; app lifetime totals are retained.",
+  "卸载": "Uninstall",
+  "打开 Windows 设置 → 应用 → 已安装的应用，找到 Flash Monitor 并卸载；默认保留数据记录。": "Open Windows Settings → Apps → Installed apps, find Flash Monitor and uninstall it. Data records are retained by default.",
+  "点击下方按钮检查 GitHub 发行版。": "Use the button below to check GitHub releases.",
+  "有新版本 · 设置 → 关于": "Update available · Settings → About",
+  "IPv6 屏蔽": "IPv6 blocking",
+  "屏蔽": "blocking",
+  "选择应用或网站": "Choose an app or website",
+  "为指定应用或网站屏蔽 IPv6 新连接，需保持 Monitor 运行。": "Block new IPv6 connections for selected apps or websites. Monitor must remain running.",
+  "打开 Clash 接入设置": "Open Clash connection settings",
   "只影响总体时段统计；按程序的网站明细固定保留 7 天，最多 20": "Applies to overall time-based statistics only. Per-app website details are kept for 7 days, up to 20",
   "行、8 MiB 明细数据库。超限可能缺少部分网站，程序总累计保留。连接记录文件不按这个天数删。卸载程序：打开 Windows 设置": "rows and an 8 MiB detail database. Limits may remove some website details; app lifetime totals are retained. Connection log files are not deleted by this setting. To uninstall, open Windows Settings",
   "应用": "App",
@@ -1098,7 +1211,30 @@ const UI_MESSAGES = {
   "关闭窗口时藏到托盘": "Close to tray",
   "采集不停。彻底退出用托盘菜单「退出 Flash Monitor」。": "Collection continues. To exit completely, choose Exit Flash Monitor in the tray menu.",
   "忽略的程序": "Ignored apps",
-  "忽略后不出现在实时程序列表、统计和托盘提示里。系统噪音默认已忽略。": "Ignored apps are hidden from the live app list, usage and tray notifications. System noise is ignored by default.",
+  "忽略后从实时与用量的程序列表隐藏，并停止新程序提醒；网站、节点统计仍包含这些程序的流量。系统噪音默认已忽略。": "Ignored apps are hidden from live and usage app lists, and new-app notifications stop. Website and node totals still include their traffic. System noise is ignored by default.",
+  "网站与节点用量包含已忽略程序的流量。": "Website and node usage includes traffic from ignored apps.",
+  "已忽略": "Ignored",
+  "显示名称": "Display name",
+  "进程名": "Process name",
+  "代理（字节）": "Proxy (bytes)",
+  "直连（字节）": "Direct (bytes)",
+  "未知（字节）": "Unknown (bytes)",
+  "已拒绝（字节）": "Rejected (bytes)",
+  "合计（字节）": "Total (bytes)",
+  "下载（字节）": "Download (bytes)",
+  "上传（字节）": "Upload (bytes)",
+  "统计时段": "Period",
+  "记录起点（UTC）": "Recorded since (UTC)",
+  "导出时间（UTC）": "Exported at (UTC)",
+  "搜索程序名称或进程名": "Search app or process names",
+  "搜索网站域名或 IP": "Search website domains or IPs",
+  "搜索节点名称": "Search node names",
+  "换个维度搜索：": "Search another dimension:",
+  "搜索程序": "Search apps",
+  "搜索网站": "Search websites",
+  "搜索节点": "Search nodes",
+  "清除网站筛选": "Clear website filter",
+  "清除程序筛选": "Clear app filter",
   "个": "items",
   "空": "Empty",
   "没有绕过 TUN": "No TUN bypasses",
@@ -1179,12 +1315,17 @@ const UI_MESSAGES = {
   "小球视图": "Bubble view",
   "小球视图 · Esc 返回": "Bubble view · Esc to return",
   "范围未保存 · 重试": "Filter not saved · Retry",
-  "找出谁用掉了代理流量": "Find where your proxy traffic goes",
+  "查看程序、网站与节点用了多少流量": "See how much traffic apps, websites, and nodes use",
   "返回": "Back",
   "连接状态": "Connection status",
   "最近结束": "Recently closed",
   "网站：": "Website:",
   "程序：": "App:",
+  "搜索：": "Search:",
+  "（含子域名）": " (including subdomains)",
+  "当前筛选": "Active filters",
+  "清除全部筛选": "Clear all filters",
+  "清除筛选并查看实时连接": "Clear filters and show live connections",
   "查看全部程序": "View all apps",
   "重试": "Retry",
   "后台连接中断": "Backend disconnected",
@@ -1237,10 +1378,17 @@ const UI_MESSAGES = {
   "开始走网了": "started using the network",
   "正在确认…": "Acknowledging…",
   "知道了": "Got it",
+  "今日": "Today:",
+  "项提醒": "alerts",
+  "新增": "New:",
+  "查看提醒": "View alerts",
+  "今天收起": "Collapse for today",
+  "收起后，新提醒仍会更新数量。": "New alerts will still update the count.",
   "今天合计已用": "Today's total:",
   "超过提醒值": "exceeds the alert threshold",
   "今天已超过单个程序的提醒值": "exceeded the per-app daily threshold",
   "刷新账期": "Refresh subscription",
+  "刷新账期失败：": "Could not refresh subscription:",
   "到期": "Expires",
   "天后到期": "days until expiry",
   "已到期": "Expired",
@@ -1254,10 +1402,19 @@ const UI_MESSAGES = {
   "未知或拒绝": "Unknown or rejected",
   "清零累计和各时段统计？连接记录文件不会删除。": "Reset lifetime and time-based statistics? Connection log files will be kept.",
   "已清零": "Statistics reset",
+  "正在清零…": "Resetting…",
+  "清零等待保存": "Reset awaiting save",
+  "清零尚未全部保存，请保持程序运行；系统会自动重试。": "The reset is not fully saved yet. Keep the app running; it will retry automatically.",
+  "清零结果未确认，请检查统计状态后再试。": "The reset could not be confirmed. Check the statistics before trying again.",
+  "清零已在当前会话生效，但尚未全部写入磁盘；请保持程序运行，系统会自动重试。": "The reset applies to this session but is not fully saved to disk. Keep the app running; it will retry automatically.",
+  "清零已在当前会话生效，但网站明细暂不可用，尚未全部持久保存；请保持程序运行并检查数据目录。": "The reset applies to this session, but website details are unavailable and it is not fully saved. Keep the app running and check the data folder.",
+  "正在退出或准备更新，未清零；请稍后重试。": "The app is exiting or preparing an update. Statistics were not reset; try again later.",
+  "统计数据库仅在内存中，暂不能持久清零；未修改当前统计。": "The statistics database is only in memory, so a persistent reset is unavailable. Current statistics are unchanged.",
+  "统计库已关闭，未清零。": "The statistics database is closed. Statistics were not reset.",
   "清零失败": "Reset failed",
   "筛选 ·": "Filters ·",
-  "有代理流量": "Proxy traffic",
-  "有直连流量": "Direct traffic",
+  "有代理流量": "With proxy traffic",
+  "有直连流量": "With direct traffic",
   "筛选": "Filters",
   "仅绕过 TUN": "TUN bypasses only",
   "确认失败：": "Acknowledgement failed:",
@@ -1269,6 +1426,7 @@ const UI_MESSAGES = {
   "开启 IPv6 屏蔽": "Enable IPv6 blocking",
   "未识别此应用的路径，请让它联网后重试。": "App path not identified. Let the app connect, then try again.",
   "请选择应用或输入网站。": "Select an app or enter a website.",
+  "对象已更改，请重新确认操作。": "The target has changed. Confirm the action again.",
   "正在更新…": "Updating…",
   "正在检查…": "Checking…",
   "已开启": "Enabled",
@@ -1425,8 +1583,6 @@ const UI_MESSAGES = {
   "流量筛选": "Traffic filter",
   "筛选有对应流量的条目，并按该类用量排序；表格保留代理、直连对比": "Filter and sort by traffic type; the table keeps proxy and direct traffic side by side",
   "全部流量": "All traffic",
-  "代理优先": "Proxy first",
-  "直连优先": "Direct first",
   "只看绕过 TUN": "TUN bypasses only",
   "导出 CSV": "Export CSV",
   "显示已忽略": "Show ignored",
@@ -1469,7 +1625,19 @@ const UI_MESSAGES = {
   "仅供检查与备份，导出不会保存到 FlClash 或使限制生效。": "is for inspection and backup only. Exporting does not save to FlClash or activate the restriction.",
   "导出规则 TXT": "Export rules as TXT",
   "已有方案": "Existing plans",
-  "撤销限制": "Remove restriction"
+  "撤销限制": "Remove restriction",
+  "外部控制器地址无效，请填写完整的 http:// 或 https:// 地址，并检查主机名和端口。": "Invalid controller address. Enter a complete http:// or https:// URL and check the hostname and port.",
+  "订阅地址无效，请填写完整的 http:// 或 https:// 地址，并检查主机名和端口（少于 2000 字符）；清除订阅请使用清除按钮。": "Invalid subscription URL. Enter a complete http:// or https:// URL with a valid hostname and port (under 2000 characters). Use Clear to remove a saved subscription.",
+  "连接测试失败，请检查外部控制器设置后重试。": "Connection test failed. Check the external controller settings and try again.",
+  "认证失败，请检查 Clash 密钥是否与客户端一致。": "Authentication failed. Check that the Clash secret matches your client.",
+  "连接被拒绝，请确认外部控制器已开启，且地址和端口正确。": "Connection refused. Enable the external controller and check its address and port.",
+  "连接超时，请检查控制器是否运行以及网络是否可达。": "Connection timed out. Check that the controller is running and reachable.",
+  "接口响应不兼容，请确认填写的是 Clash 外部控制器地址，而非代理端口。": "Incompatible response. Use the Clash external controller address, not its proxy port.",
+  "控制器返回错误，请检查客户端状态后重试。": "The controller returned an HTTP error. Check the client and try again.",
+  "网络连接失败，请检查主机名、网络和防火墙设置。": "Network connection failed. Check the hostname, network and firewall settings.",
+  "控制器地址无效，请检查协议、主机名和端口。": "Invalid controller address. Check the scheme, hostname and port.",
+  "已尝试地址": "Addresses tried",
+  "已连接": "Connected"
 };
 const UI_LANGUAGE_KEY = 'flashmonitor.ui.language';
 function readUiLanguage() {
@@ -1484,6 +1652,7 @@ const UI_LANGUAGE=readUiLanguage();
 const UI_LOCALE=UI_LANGUAGE==='zh-CN' ? 'zh-CN' : 'en-US';
 function translateUiText(text) {
   if(UI_LANGUAGE==='zh-CN') return String(text);
+  if(Object.hasOwn(UI_MESSAGES,String(text))) return UI_MESSAGES[String(text)];
   return String(text).replace(/[\u3400-\u9fff][\u3400-\u9fff，。；：、（）《》「」“”！？…· A-Za-z0-9_\/+.%\-]*/g,part=>{
     const key=part.trimEnd();
     return Object.hasOwn(UI_MESSAGES,key) ? UI_MESSAGES[key]+part.slice(key.length) : part;
@@ -1553,17 +1722,28 @@ let homeScope="all",homeScopeVersion=0,homeScopeSavedVersion=0,homeScopeSaving=f
 let newAckBusy=false,newAckError="",displayedNew=[];
 const acknowledgedNew=new Set();
 function newEventKey(event) {return JSON.stringify([event.process,Number(event.ts || 0)]);}
+const NOTICE_STATE_KEY="flashmonitor.notices.day";
+let noticeState=null;
 let searchOpen = false;
+let primaryViews = {};
 let clashTesting = false;
 let snapshotAt = 0;
 const closingIds = new Set();
 let setPane = "general";
+let settingsAdvancedOpen = false;
 let leakOnly = false;
 let connectionRoute = "";
 let last = null;
+let resetBusy = false;
 let settingsCache = null;
 let settingsNote = "";
+let settingsInputRevision = 0;
+const settingsSaveTokens = new Map();
+let settingsSaveQueue = Promise.resolve();
+const settingsSaveStates = new Map();
+let clashConfigRevision = 0;
 let updateInfo = null;
+const updateState = {busy:false, phase:"", error:"", restarting:false};
 let clashNote = "";
 let pollError = "";
 let collectError = "";
@@ -1694,8 +1874,15 @@ function setHtml(el, html, force) {
   hold.pending.delete(el);
   if (el._html === html) return;
   const focusedProgram=el.contains(document.activeElement) ? document.activeElement?.dataset?.program : undefined;
+  // Keep edits only in the form DOM, including failed secret submissions. Never put them in history/storage.
+  const settingEdits=el.id==='main' && filter==='settings' ? [...el.querySelectorAll('input[data-setting]')]
+    .filter(input=>input.dataset.dirty==='1').map(input=>({id:input.id,value:input.value,revision:input.dataset.editRevision,error:document.getElementById(input.id+'-error')?.textContent || ''})) : [];
   el.innerHTML = html;
   el._html = html;
+  for(const edit of settingEdits) {
+    const input=document.getElementById(edit.id);
+    if(input && el.contains(input)) {input.value=edit.value;input.dataset.dirty='1';input.dataset.editRevision=edit.revision;settingInputFeedback(input,edit.error);}
+  }
   if(focusedProgram!==undefined) [...el.querySelectorAll('[data-program]')].find(b=>b.dataset.program===focusedProgram)?.focus();
 }
 function flushHeld() {
@@ -1747,7 +1934,7 @@ FILTERS.forEach(([id, label]) => {
   b.textContent = label;
   if (id === filter) b.className = "on";
   b.onclick = async () => {
-    await gotoFilter(id,"",id === "overview" ? {style:"list"} : {period:"today",rankMode:"program",traffic:"proxy"});
+    await gotoPrimaryView(id);
   };
   box.appendChild(b);
 });
@@ -1757,14 +1944,7 @@ RANK_MODES.forEach(([id, label]) => {
   const b = document.createElement("button");
   b.textContent = label;
   if (id === rankMode) b.className = "on";
-  b.onclick = () => {
-    rankMode = id;
-    rankSort={key:null,direction:"desc"};
-    processScope = "";
-    rememberView();
-    [...mbox.children].forEach(x => x.classList.toggle("on", x.textContent === label));
-    render(true);
-  };
+  b.onclick = () => chooseRankMode(id);
   mbox.appendChild(b);
 });
 const pbox = document.getElementById("periods");
@@ -1782,25 +1962,62 @@ PERIODS.forEach(([id, label]) => {
   };
   pbox.appendChild(b);
 });
-document.getElementById("q").addEventListener("input", () => render(true));
+document.getElementById("q").addEventListener("input", () => {rememberView();render(true);});
 document.getElementById("sort").addEventListener("change", e => { trafficScope = e.target.value; rankSort={key:null,direction:"desc"}; rememberView(); render(true); });
 document.getElementById("btn-export").onclick = () => {
   const pack = ((last || {}).rank || {})[period];
   if (!pack || !pack.rows || staleData()) return;
   const rows = statsRows(pack);
-  const fields = rankMode === "node" ? [tr("节点"),tr("下载"),tr("上传"),tr("合计")] : [rankMode === "site" ? tr("网站") : tr("程序"),tr("代理"),tr("直连"),tr("未知"),tr("已拒绝"),tr("合计")];
+  const fields = rankMode === "node" ? [tr("节点"),tr("下载（字节）"),tr("上传（字节）"),tr("合计（字节）")] : [...(rankMode === "site" ? [tr("网站")] : [tr("显示名称"),tr("进程名")]),tr("代理（字节）"),tr("直连（字节）"),tr("未知（字节）"),tr("已拒绝（字节）"),tr("合计（字节）")];
+  const exportedAt=new Date().toISOString(),coverage=rankMode==='node'?pack.nodes?.coverage:rankMode==='site'?pack.sites?.coverage:pack.coverage;
+  const since=Number(coverage?.since),recordedSince=Number.isFinite(since) && since>0 && since<8640000000000 ? new Date(since*1000).toISOString() : '';
+  fields.push(tr('统计时段'),tr('记录起点（UTC）'),tr('导出时间（UTC）'));
   const cell = v => '"' + (typeof v === "string" && /^[=+@\-\t\r\n]/.test(v) ? "'"+v : String(v)).replace(/"/g, '""') + '"';
-  const content = [fields, ...rows.map(r => rankMode === "node"
-    ? [r.node, r.download, r.upload, statTotal(r)]
-    : [rankMode === "site" ? r.site : labelOf(r.process,r.title), statProxy(r), statDirect(r), statUnknown(r), statRejected(r), statTotal(r)])];
+  const content = [fields, ...rows.map(r => [...(rankMode === "node"
+    ? [r.node, byteValue(r.download), byteValue(r.upload), statTotal(r)]
+    : [...(rankMode === "site" ? [r.site] : [labelOf(r.process,r.title),r.process]), statProxy(r), statDirect(r), statUnknown(r), statRejected(r), statTotal(r)]),periodLabel(),recordedSince,exportedAt])];
   const blob = new Blob(["\ufeff" + content.map(r => r.map(cell).join(",")).join("\r\n")], {type:"text/csv;charset=utf-8"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `FlashMonitor-${rankMode}-${period}-${trafficScope}.csv`;
+  a.download = `FlashMonitor-${rankMode}-${period}-${rankMode==='node'?'all':trafficScope}-${exportedAt.replace(/[:.]/g,'-')}.csv`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
 function query() { return (document.getElementById("q").value || "").trim().toLowerCase(); }
+function paintSearchContext() {
+  const label=filter==='rank' ? rankMode==='program' ? tr('搜索程序名称或进程名') : rankMode==='site' ? tr('搜索网站域名或 IP') : tr('搜索节点名称') : tr('搜索程序或网站');
+  const input=document.getElementById('q');input.placeholder=label;input.setAttribute('aria-label',label);
+}
+function chooseRankMode(id) {
+  if(id===rankMode || !RANK_MODES.some(([value])=>value===id)) return;
+  rankMode=id;rankSort={key:null,direction:'desc'};processScope='';
+  rememberView();render(true);
+}
+function rankSearchActions() {
+  if(!query()) return '';
+  const choices=[['program',tr('搜索程序')],['site',tr('搜索网站')],['node',tr('搜索节点')]];
+  return tr`<p>${tr('换个维度搜索：')}</p><div class="acts">${choices.filter(([id])=>id!==rankMode).map(([id,label])=>`<button type="button" class="btn" data-search-dimension="${id}">${label}</button>`).join('')}<button type="button" class="btn" data-clear-search>清空搜索</button></div>`;
+}
+function resultFilters() {
+  if(!['rank','conns'].includes(filter)) return [];
+  const active=[];
+  if(query()) active.push(['search',tr('搜索：')+document.getElementById('q').value.trim()]);
+  if(processScope && (filter==='conns' || rankMode==='program')) active.push(['program',tr('程序：')+labelOf(processScope)]);
+  if(filter==='rank' && rankMode!=='node' && trafficScope!=='all') active.push(['traffic',trafficScope==='proxy'?tr('有代理流量'):tr('有直连流量')]);
+  if(filter==='conns') {
+    if(connectionSite) active.push(['site',tr('网站：')+connectionSite+(connectionSubdomains?tr('（含子域名）'):'')]);
+    if(connMode==='closed') active.push(['state',tr('最近结束')]);
+    else {
+      if(leakOnly) active.push(['leak',tr('绕过 TUN 的连接')]);
+      if(connectionRoute) active.push(['route',connectionRoute==='unknown'?tr('未知'):tr('已拒绝')]);
+    }
+  }
+  return active;
+}
+function resultFilterRecovery() {
+  if(!resultFilters().length) return '';
+  return `<div class="acts"><button type="button" class="btn" data-clear-filters>${filter==='conns' && connMode==='closed'?tr('清除筛选并查看实时连接'):tr('清除全部筛选')}</button></div>`;
+}
 function hit(...parts) {
   const q = query();
   if (!q) return true;
@@ -1909,12 +2126,16 @@ async function savePref(process, patch) {
   let release;prefSaveChain=new Promise(resolve=>release=resolve);
   try {
     await previous;
-    settingsCache = await api("/api/settings", { body: { process, ...patch } });
+    const saved = await api("/api/settings", { body: { process, ...patch } });
+    // A successful HTTP request may still report a rejected disk write. Keep
+    // the last confirmed preferences until this change is actually saved.
+    if(saved.error) {flashToast(settingErrorText(saved.error));return;}
+    settingsCache = saved;
     prefCommitVersion++;
     for(const key of ['ignored','pinned']) if(typeof patch[key]==='boolean') prefOverrides.set(identity+':'+key,{process,key,on:patch[key],commit:prefCommitVersion});
     render(true);
   } catch (e) {
-    flashToast(tr("没存上 ") + e.message);
+    flashToast(tr("没存上 ") + settingErrorText(e.message));
   } finally {
     prefPending.delete(identity);refreshControls();release();
   }
@@ -2058,7 +2279,7 @@ function statsRows(pack) {
   if (rankMode !== "node" && trafficScope !== "all") rows = rows.filter(r => statValue(r) > 0);
   rows = rows.slice().sort((a,b) => statValue(b)-statValue(a));
   rows=sortRankRows(rows,r=>rankMode==='program'?r.process:rankMode==='site'?r.site:r.node);
-  return rankMode==='program'?arrangeRows(rows):rows;
+  return rankMode==='program'?rows.filter(r=>document.getElementById('show-ignored')?.checked || !isIgnored(r.process)):rows;
 }
 function siteType(value) {
   const text=String(value || '');
@@ -2066,17 +2287,17 @@ function siteType(value) {
   return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(text) || text.includes(':') ? 'IP' : tr('域名');
 }
 function connectionSiteButton(site,includeSubdomains=false) {
-  return siteType(site)===tr('域名') ? tr`<button type="button" class="link" data-connection-domain="${escapeHtml(site)}" data-connection-subdomains="${includeSubdomains}" aria-label="${escapeHtml(site)} 连接设置">连接设置</button>` : '';
+  return siteType(site)===tr('域名') ? tr`<button type="button" class="link" data-connection-domain="${escapeHtml(site)}" data-connection-subdomains="${includeSubdomains}" aria-label="${escapeHtml(site)} IPv6 屏蔽">IPv6 屏蔽</button>` : '';
 }
-function moreButton(process,site="",subdomains=true) {
-  const label=site || labelOf(process),attr=site?`data-site-menu="${escapeHtml(site)}" data-site-subdomains="${subdomains}"`:`data-program-menu="${escapeHtml(process)}"`;
+function moreButton(process,site="",subdomains=true,scopeSite="") {
+  const label=site || labelOf(process),attr=site?`data-site-menu="${escapeHtml(site)}" data-site-subdomains="${subdomains}" data-site-process="${escapeHtml(process || '')}"`:`data-program-menu="${escapeHtml(process)}"${scopeSite?` data-program-site="${escapeHtml(scopeSite)}" data-site-subdomains="${subdomains}"`:''}`;
   return tr`<button type="button" class="more-btn" ${attr} aria-label="${escapeHtml(label)} 的更多操作" aria-haspopup="menu" aria-expanded="false" title="更多操作">⋯</button>`;
 }
 function rankName(r,key,open,child=false,scopeSite="") {
   const program=!!r.process,label=program?labelOf(r.process,r.title):r.site || r.node;
   return `<button type="button" class="rank-name ${child?'child-name':''}" ${key?tr`data-fold="${escapeHtml(key)}" aria-expanded="${open}" aria-label="${escapeHtml(label)}，${open?tr('收起'):tr('展开')}${program?tr('网站'):tr('程序')}明细"`:`data-connections="${escapeHtml(r.process || '')}" ${scopeSite?`data-site-connections="${escapeHtml(scopeSite)}" data-site-process="${escapeHtml(r.process)}" data-site-subdomains="true"`:""}`}>
     ${key?`<span class="fold${open?' open':''}">${SVG_CHEV}</span>`:'<span class="child-stem" aria-hidden="true"></span>'}
-    ${program?iconImg(r.process,r.title):'<span class="site-icon" aria-hidden="true">◎</span>'}<span class="name-stack"><span class="name-text" title="${escapeHtml(label)}">${escapeHtml(label)}</span>${program && isPinned(r.process)?tr('<small class="sub">已置顶</small>'):''}</span></button>`;
+    ${program?iconImg(r.process,r.title):'<span class="site-icon" aria-hidden="true">◎</span>'}<span class="name-stack"><span class="name-text" title="${escapeHtml(label)}">${escapeHtml(label)}</span>${program && isPinned(r.process)?tr('<small class="sub">已置顶</small>'):''}${program && isIgnored(r.process)?tr('<small class="sub" data-ignored-app>已忽略</small>'):''}</span></button>`;
 }
 function coverageNote(text,label=tr('统计范围')) {
   return `<details class="coverage-note"><summary>${label}</summary><p class="sub" data-stat-coverage>${escapeHtml(text)}</p></details>`;
@@ -2086,9 +2307,17 @@ function renderRank() {
   if(!pack || !Array.isArray(pack.rows)) return loadingHtml();
   const rows=statsRows(pack),total=rows.reduce((n,r)=>n+statTotal(r),0),proxy=rows.reduce((n,r)=>n+statProxy(r),0),direct=rows.reduce((n,r)=>n+statDirect(r),0);
   const other=rows.reduce((n,r)=>n+statUnknown(r)+statRejected(r),0),coverage=rankMode==='node'?pack.nodes?.coverage:rankMode==='site'?pack.sites?.coverage:pack.coverage;
-  const summary=tr`<section class="usage-summary" aria-label="${periodLabel()}当前结果用量"><div class="usage-primary"><span class="metric-label">${periodLabel()} · ${rankMode==='node'?tr('节点流量'):tr('代理用量')}</span><strong>${fmtBytes(rankMode==='node'?total:proxy)}</strong><span class="sub">${rankMode==='node'?tr('经过代理节点的流量'):total?tr`占当前结果 ${pct(proxy,total)}%`:tr('等待流量记录')}</span></div><div class="usage-metric"><span class="metric-label">直连</span><b>${rankMode==='node'?'—':fmtBytes(direct)}</b></div><div class="usage-metric"><span class="metric-label">合计</span><b>${fmtBytes(total)}</b>${other?tr`<small class="sub">含未知 / 拒绝 ${fmtBytes(other)}</small>`:''}</div><div class="usage-metric"><span class="metric-label">当前结果</span><b>${rows.length}<small> ${rankMode==='program'?tr('个程序'):rankMode==='site'?tr('个网站'):tr('个节点')}</small></b></div></section>`;
+  const primary=rankMode==='node'?'node':trafficScope,primaryValue=primary==='proxy'?proxy:primary==='direct'?direct:total;
+  const primaryLabel=primary==='node'?tr('节点流量'):primary==='all'?tr('总用量'):primary==='direct'?tr('直连用量'):tr('代理用量');
+  const comparisons=primary==='all'?[[tr('代理'),proxy],[tr('直连'),direct]]:primary==='direct'?[[tr('代理'),proxy],[tr('合计'),total]]:[[tr('直连'),rankMode==='node'?null:direct],[tr('合计'),total]];
+  const otherNote=other?tr`<small class="sub">含未知 / 拒绝 ${fmtBytes(other)}</small>`:'';
+  const summary=tr`<section class="usage-summary" aria-label="${periodLabel()}当前结果用量"><div class="usage-primary"><span class="metric-label">${periodLabel()} · ${primaryLabel}</span><strong>${fmtBytes(primaryValue)}</strong><span class="sub">${primary==='node'?tr('经过代理节点的流量'):!total?tr('等待流量记录'):primary==='all'?tr('下载 + 上传'):tr`占当前结果 ${pct(primaryValue,total)}%`}</span>${primary==='all'?otherNote:''}</div>${comparisons.map(([label,value])=>`<div class="usage-metric"><span class="metric-label">${label}</span><b>${value==null?'—':fmtBytes(value)}</b>${label===tr('合计')?otherNote:''}</div>`).join('')}<div class="usage-metric"><span class="metric-label">当前结果</span><b>${rows.length}<small> ${rankMode==='program'?tr('个程序'):rankMode==='site'?tr('个网站'):tr('个节点')}</small></b></div></section>`;
+  const scopeNote=rankMode==='program'?'':tr('<p class="list-note" data-ignore-coverage>网站与节点用量包含已忽略程序的流量。</p>');
   const note=coverageNote(coverageLabel(coverage),tr('仅统计已观察到的流量 · 查看范围'));
-  if(!rows.length) return summary+`<div class="empty">${query() || processScope ? tr('没有匹配的结果，请调整搜索或筛选。') : tr('这个时段还没有符合筛选的流量。')}</div>`+note;
+  if(!rows.length) {
+    const source=rankMode==='node'?pack.nodes?.rows:rankMode==='site'?pack.sites?.rows:pack.rows;
+    return summary+scopeNote+`<div class="empty">${source?.length ? tr('没有匹配的结果，请调整搜索或筛选。') : tr('这个时段还没有流量记录。')}${resultFilterRecovery()}${rankSearchActions()}</div>`+note;
+  }
   const max=Math.max(1,...rows.map(statValue)),title=rankMode==='node'?tr('节点'):rankMode==='site'?tr('网站 · 展开查看程序'):tr('程序 · 展开查看网站');
   const head=tr`<th class="rk">#</th><th class="grow">${title}</th>${rankMode==='node'?tr('<th class="num">下载</th><th class="num">上传</th>'):rankHeader('proxy',tr('代理'))+rankHeader('direct',tr('直连'))}${rankHeader('total',tr('合计'))}<th class="action-col"><span class="sr-only">操作</span></th>`;
   const cells=r=>rankMode==='node'?`<td class="num">${fmtBytes(r.download)}</td><td class="num">${fmtBytes(r.upload)}</td>`:`<td class="num proxy">${fmtBytes(statProxy(r))}</td><td class="num direct">${fmtBytes(statDirect(r))}</td>`;
@@ -2099,15 +2328,16 @@ function renderRank() {
     let children=available?(program?r.sites || []:attribution?.rows || []):[];
     children=sortRankRows(children.filter(c=>trafficScope==='all'||statValue(c)>0).slice(),c=>c.site || c.process);
     const notice=program?(r.sites_note || tr('仅已有主要网站记录，明细可能不覆盖全部流量。')):((attribution?.coverage?coverageLabel(attribution.coverage)+' · ':'')+(attribution?.note || tr('当前后台尚未提供网站的程序明细，请重启更新后的 Monitor。')));
-    const childRows=open && (program||site)?children.map(c=>`<tr class="site" data-live-key="${escapeHtml(key+':'+(c.site||c.process))}" data-site-row="${escapeHtml(c.site||c.process)}"><td></td><td class="grow">${program?tr`<button type="button" class="rank-name child-name" data-site-connections="${escapeHtml(c.site)}" data-site-process="${escapeHtml(r.process)}" data-site-subdomains="true" title="查看当前连接"><span class="child-stem" aria-hidden="true"></span><span class="site-icon" aria-hidden="true">◎</span><span class="name-text">${escapeHtml(c.site)}</span></button>`:rankName(c,'',false,true,r.site)}</td>${cells(c)}<td class="num">${fmtBytes(statTotal(c))}</td><td class="action-col">${moreButton(c.process,program?c.site:"")}</td></tr>`).join('')+`<tr class="site detail-foot" data-live-key="${escapeHtml(key+':note')}"><td></td><td colspan="5">${!children.length?tr('<span class="sub">没有匹配的明细。 </span>'):''}${coverageNote(notice+(program?tr(' 未从 IP 反查域名。'):''),program?tr('主要网站 · 明细范围'):tr('已记录的程序 · 明细范围'))}</td></tr>`:'';
+    const childRows=open && (program||site)?children.map(c=>`<tr class="site" data-live-key="${escapeHtml(key+':'+(c.site||c.process))}" data-site-row="${escapeHtml(c.site||c.process)}"><td></td><td class="grow">${program?tr`<button type="button" class="rank-name child-name" data-site-connections="${escapeHtml(c.site)}" data-site-process="${escapeHtml(r.process)}" data-site-subdomains="true" title="查看当前连接"><span class="child-stem" aria-hidden="true"></span><span class="site-icon" aria-hidden="true">◎</span><span class="name-text">${escapeHtml(c.site)}</span></button>`:rankName(c,'',false,true,r.site)}</td>${cells(c)}<td class="num">${fmtBytes(statTotal(c))}</td><td class="action-col">${moreButton(program?r.process:c.process,program?c.site:"",true,site?r.site:"")}</td></tr>`).join('')+`<tr class="site detail-foot" data-live-key="${escapeHtml(key+':note')}"><td></td><td colspan="5">${!children.length?tr('<span class="sub">没有匹配的明细。 </span>'):''}${coverageNote(notice+(program?tr(' 未从 IP 反查域名。'):''),program?tr('主要网站 · 明细范围'):tr('已记录的程序 · 明细范围'))}</td></tr>`:'';
     const name=program||site?rankName(r,key,open):`<span class="host">${escapeHtml(r.node)}</span>`;
     return `<tr class="usage-row ${open?'expanded':''}" data-live-key="${escapeHtml(key)}" data-rank-row="${escapeHtml(r.process||r.site||r.node)}" ${program?`data-context-process="${escapeHtml(r.process)}"`:''}><td class="rk">${i+1}</td><td class="grow">${name}<div class="usage-bar" aria-hidden="true">${splitBar(rankMode==='node'?statTotal(r):statProxy(r),rankMode==='node'?0:statDirect(r),max)}</div></td>${cells(r)}<td class="num tot">${fmtBytes(statTotal(r))}${statOtherLabel(r)?`<small class="sub">${escapeHtml(statOtherLabel(r))}</small>`:''}</td><td class="action-col">${program||site?moreButton(r.process,r.site):''}</td></tr>${childRows}`;
   }).join('');
-  return summary+`<div class="usage-table">${tableWrap(head,body)}</div>`+note;
+  return summary+scopeNote+`<div class="usage-table">${tableWrap(head,body)}</div>`+note;
 }
 function renderConns(rows) {
   const q = query();
   const live = connMode === "live";
+  const hasConnections=rows.length>0;
   if (processScope) rows = rows.filter(f => f.process === processScope);
   if(connectionSite) rows=rows.filter(f=>matchesSite(f,connectionSite,connectionSubdomains));
   if (live && leakOnly) rows = rows.filter(f => f.path === "leak");
@@ -2129,7 +2359,7 @@ function renderConns(rows) {
     rows=rows.filter(f=>flowRouteKind(f)===connectionRoute);
     sum+=tr`<p class="sub">仅看${connectionRoute==='unknown'?tr('未知'):tr('已拒绝')}连接，${rows.reduce((n,f)=>n+Number(f.n || 1),0)} 条；再次点击上方状态取消筛选。</p>`;
   }
-  if (!rows.length) return `${sum}<div class="empty">${live && leakOnly ? tr("现在没有绕过 TUN连接") : (q ? tr("没有匹配的连接") : tr("没有连接"))}</div>`;
+  if (!rows.length) return `${sum}<div class="empty">${hasConnections ? tr('没有匹配的连接') : live ? tr('没有连接') : tr('暂无最近结束的连接')}${resultFilterRecovery()}</div>`;
   const head = tr`<th>出站</th><th>程序</th><th class="grow">远端</th><th class="num">下载</th><th class="num">上传</th><th class="hide-sm">${live ? tr("规则") : tr("结束于")}</th>${live ? '<th class="act"></th>' : ""}`;
   const body = rows.map(f => {
     const ids = (f.ids || (f.id ? [f.id] : [])).filter(Boolean);
@@ -2154,27 +2384,112 @@ function renderConns(rows) {
   return sum + tableWrap(head, body);
 }
 async function loadSettings() {
-  settingsCache = await api("/api/settings");
+  if(loadSettings.pending) return loadSettings.pending;
+  loadSettings.loading=true;loadSettings.error='';
+  loadSettings.pending=(async()=>{
+    try {
+      const saved=await api('/api/settings');
+      if(!saved || saved.error) throw new Error(saved?.error || tr('读取失败'));
+      settingsCache=saved;
+      return saved;
+    } catch(error) {
+      loadSettings.error=tr('读取设置失败：')+(error?.message || tr('读取失败'));
+      return null;
+    } finally {loadSettings.loading=false;}
+  })();
+  if(filter==='settings') render(true);
+  try {return await loadSettings.pending;}
+  finally {loadSettings.pending=null;if(filter==='settings') render(true);}
 }
-async function saveSetting(key, value, silent) {
+function retrySetting(key) {
+  const state=settingsSaveStates.get(key);
+  if(state && !state.pending && !state.inputId) return saveSetting(key,state.value);
+}
+function settingInputFeedback(input, message) {
+  if(!input) return;
+  input.setAttribute('aria-invalid',String(!!message));
+  const error=document.getElementById(input.id+'-error');
+  if(error) {error.textContent=message;error.hidden=!message;}
+}
+function settingErrorText(error) {
+  const text=String(error || '');
+  const prefix=['设置没存上：','其他设置已保存，开机启动项未更新：'].find(value=>text.startsWith(value));
+  return prefix?tr(prefix)+tr(text.slice(prefix.length)):tr(text);
+}
+function invalidateClashTest(key) {
+  if(key!=='clash_api' && key!=='clash_secret') return;
+  ++clashConfigRevision;
+  clashNote='';
+  const note=document.getElementById('clash-test-note');
+  if(note) note.textContent='';
+}
+function editSettingInput(input) {
+  input.dataset.dirty='1';
+  input.dataset.editRevision=String(++settingsInputRevision);
+  settingsNote='';
+  if(settingsCache) settingsCache.error='';
+  settingInputFeedback(input,'');
+  invalidateClashTest(input.dataset.setting);
+  const note=document.getElementById('settings-save-note');
+  if(note) note.textContent='';
+}
+function saveSetting(key, value, silent, input) {
   settingsNote = "";
-  try {
-    settingsCache = await api("/api/settings", { body: { [key]: value } });
-  } catch (e) {
-    if (!silent) flashToast(tr("没存上 ") + e.message);
-    return null;
-  }
-  if (silent) return settingsCache;
-  settingsNote = settingsCache.error ? "" : tr("已保存");
-  render(true);
-  return settingsCache;
+  const submitted=input?.value,revision=input?.dataset.editRevision || '';
+  const token=++settingsInputRevision;
+  settingsSaveTokens.set(key,token);
+  invalidateClashTest(key);
+  const state={token,revision,value:input?undefined:value,inputId:input?.id,pending:true,ok:false,error:'',clear:key==='clash_secret' && value===''};
+  settingsSaveStates.set(key,state);
+  const currentInput=()=>{
+    const current=input && document.getElementById(input.id);
+    return current && current.value===submitted && current.dataset.editRevision===revision ? current : null;
+  };
+  if(input) {input.dataset.editRevision=revision;input.dataset.dirty='1';settingInputFeedback(input,'');}
+  // Serialize the writes themselves, not just their responses: a late older
+  // request must never overwrite the newer value in the backend.
+  const pending=settingsSaveQueue.then(async()=>{
+    let saved;
+    try {
+      saved = await api("/api/settings", { body: { [key]: value } });
+    } catch (e) {
+      state.error=tr("没存上 ")+settingErrorText(e.message);
+      if(settingsSaveTokens.get(key)!==token || (input && !currentInput())) return null;
+      if(input) settingInputFeedback(currentInput(),state.error);
+      else if(!silent) {const main=document.getElementById('main');if(main)main._html=null;render(true);}
+      if (!silent) flashToast(state.error);
+      return null;
+    }
+    state.error=saved.error?settingErrorText(saved.error):'';
+    state.ok=!state.error;
+    if(settingsSaveTokens.get(key)!==token) return saved;
+    const current=currentInput();
+    if(saved.error && input && !current) return saved;
+    settingsCache=saved;
+    if(settingsCache.error) {
+      if(input) settingInputFeedback(current,state.error);
+      if(!silent) {if(!input) {const main=document.getElementById('main');if(main)main._html=null;}render(true);}
+      return settingsCache;
+    }
+    if(current) {
+      delete current.dataset.dirty;
+      current.value=key==='clash_secret' || key==='sub_url' ? '' : String(settingsCache[key] ?? value);
+    }
+    if(key==='sub_url' && typeof last!=='undefined' && last) {last.sub={status:'loading',updated_at:0};tick(true);}
+    if (silent) return settingsCache;
+    settingsNote = !input || current ? tr("已保存") : '';
+    render(true);
+    return settingsCache;
+  });
+  state.promise=pending.finally(()=>{state.pending=false;});
+  settingsSaveQueue=state.promise.catch(()=>{});
+  return state.promise;
 }
 async function saveSecret(key, input) {
   // 输入框里只有用户刚填的新值（旧值不会发回页面）；删空了不算清除，清除用旁边的按钮
   const value = String((input && input.value) || "").trim();
   if (!value) return;
-  const saved = await saveSetting(key, value);
-  if (saved && !saved.error) input.value = "";
+  await saveSetting(key, value, false, input);
 }
 async function openDataDir() {
   try { await api("/api/open-data", { body: {} }); } catch { flashToast(tr("打不开数据文件夹")); }
@@ -2185,22 +2500,104 @@ async function openInstallDir() {
 async function openGithub() {
   try { await api("/api/open-github", { body: {} }); } catch { flashToast(tr("没能打开浏览器")); }
 }
+function clashFailureText(result) {
+  const messages={
+    auth_failed:tr('认证失败，请检查 Clash 密钥是否与客户端一致。'),
+    connection_refused:tr('连接被拒绝，请确认外部控制器已开启，且地址和端口正确。'),
+    timeout:tr('连接超时，请检查控制器是否运行以及网络是否可达。'),
+    invalid_response:tr('接口响应不兼容，请确认填写的是 Clash 外部控制器地址，而非代理端口。'),
+    http_error:tr('控制器返回错误，请检查客户端状态后重试。'),
+    network_error:tr('网络连接失败，请检查主机名、网络和防火墙设置。'),
+    invalid_address:tr('控制器地址无效，请检查协议、主机名和端口。')
+  };
+  return messages[result.error_code] || tr(result.error || '连接测试失败，请检查外部控制器设置后重试。');
+}
+function clashTestSummary(result) {
+  const summary=result.ok
+    ? tr`已接通 ${result.base || ''} · ${result.connections || 0} 条连接 · ${result.ms} ms`
+    : clashFailureText(result);
+  const attempts=Array.isArray(result.attempts)?result.attempts:[];
+  if(!attempts.length || (result.ok && attempts.length===1)) return summary;
+  return summary+'\n'+tr('已尝试地址')+'：\n'+attempts.map(attempt=>`${attempt.base || '—'} · ${attempt.ok?tr('已连接'):clashFailureText(attempt)}`).join('\n');
+}
+async function prepareClashSettings() {
+  const fields=[['clash_api','clash-address'],['clash_secret','clash-secret']];
+  const discarded=new Set();
+  for(const [key,id] of fields) {
+    const input=document.getElementById(id),state=settingsSaveStates.get(key);
+    if(input?.dataset.dirty!=='1') {
+      // Leaving the form discards its unsaved draft. A settled failure for that
+      // detached edit must not prevent testing the saved configuration forever.
+      if(state?.inputId && !state.pending) settingsSaveStates.delete(key);
+      continue;
+    }
+    const sameEdit=!!state && state.revision===input.dataset.editRevision;
+    const retry=sameEdit && !state.pending && !state.ok;
+    if(key==='clash_secret' && !input.value.trim()) {
+      // An empty secret edit means keep the saved secret. Explicit Clear has a
+      // save state for this same revision and must still be awaited/validated.
+      if(!sameEdit) discarded.add(key);
+      else if(retry && state.clear) saveSetting(key,'',false,input);
+      continue;
+    }
+    // Reuse an in-flight save, but another explicit test retries a settled
+    // failure even when the user has not changed the field's contents.
+    if(!sameEdit || retry) {
+      saveSetting(key,sameEdit && state.clear?'':key==='clash_secret'?input.value.trim():input.value,false,input);
+    }
+  }
+  const revision=clashConfigRevision;
+  const states=fields.map(([key])=>({key,state:settingsSaveStates.get(key)})).filter(item=>item.state);
+  await Promise.all(states.map(({state})=>state.promise));
+  if(revision!==clashConfigRevision) return {ok:false,changed:true};
+  for(const [key,id] of fields) if(discarded.has(key)) {
+    settingsSaveStates.delete(key);
+    const input=document.getElementById(id);
+    if(input) {delete input.dataset.dirty;settingInputFeedback(input,'');}
+  }
+  const failed=states.find(({key,state})=>!discarded.has(key) && !state.ok)?.state;
+  return failed ? {ok:false,inputId:failed.inputId,error:failed.error} : {ok:true,revision};
+}
 async function testClash() {
   if (clashTesting) return;
   clashTesting = true;
-  clashNote = tr("正在检测…");
-  render(true);
+  let revision=clashConfigRevision,blocked;
   try {
+    const preparing=prepareClashSettings();
+    revision=clashConfigRevision;
+    clashNote = tr("正在保存连接设置…");
+    render(true);
+    const ready=await preparing;
+    revision=clashConfigRevision;
+    if(!ready.ok) {
+      if(ready.changed) clashNote=tr('连接设置已更改，请重新测试。');
+      else {
+        blocked=ready;
+        clashNote=tr('连接设置未保存，已停止测试。');
+        if(ready.inputId && !document.getElementById(ready.inputId)) await gotoFilter('settings','connect');
+      }
+      return;
+    }
+    revision=ready.revision;
+    clashNote=tr("正在检测…");
+    render(true);
     const d = await api("/api/test-clash", { body: {} });
-    clashNote = d.ok
-      ? tr`已接通 ${d.base || ""} · ${d.connections || 0} 条连接 · ${d.ms} ms`
-      : (d.error || tr("连不上"));
+    if(revision===clashConfigRevision) clashNote = clashTestSummary(d);
   } catch (e) {
-    clashNote = e.message || tr("检测失败");
+    if(revision===clashConfigRevision) clashNote = e.message || tr("检测失败");
+  } finally {
+    clashTesting = false;
+    render(true);
+    if(blocked?.inputId) {
+      const input=document.getElementById(blocked.inputId);
+      if(input) {
+        input.dataset.dirty='1';
+        settingInputFeedback(input,blocked.error || tr('连接设置未保存，已停止测试。'));
+        input.focus();
+      }
+    }
+    tick(true);
   }
-  clashTesting = false;
-  render(true);
-  tick(true);
 }
 async function copyDiag() {
   try {
@@ -2213,9 +2610,9 @@ async function copyDiag() {
   }
 }
 function viewState() {
-  return {fm:true, uiLanguage:UI_LANGUAGE, filter, period, rankMode, trafficScope, processScope, connMode, leakOnly, connectionRoute, liveStyle, setPane,
-    focus:Object.fromEntries(Object.entries(document.activeElement?.dataset || {}).filter(([key])=>['fold','program','liveSite','programMenu','siteMenu','siteConnections','siteProcess','connections'].includes(key))),
-    homeDimension,selectedSite,connectionSite,connectionSubdomains,expanded:[...opened],scroll:document.documentElement.classList.contains("desk")?document.querySelector(".body").scrollTop:window.scrollY,rankSort:{...rankSort}, search:document.getElementById("q").value, selected:well.sel};
+  return {fm:true, connectionOrigin:filter==='conns'?history.state?.connectionOrigin || null:null, uiLanguage:UI_LANGUAGE, filter, period, rankMode, trafficScope, processScope, connMode, leakOnly, connectionRoute, liveStyle, setPane,
+    focus:Object.fromEntries(Object.entries(document.activeElement?.dataset || {}).filter(([key])=>['fold','program','liveSite','programMenu','programSite','siteMenu','siteConnections','siteProcess','connections'].includes(key))),
+    homeDimension,selectedSite,connectionSite,connectionSubdomains,expanded:[...opened],scroll:document.documentElement.classList.contains("desk")?document.querySelector(".body").scrollTop:window.scrollY,rankSort:{...rankSort}, search:document.getElementById("q").value, searchOpen, showIgnored:document.getElementById("show-ignored").checked, selected:well.sel, primaryViews:{...primaryViews}};
 }
 function viewHash() {
   const q = new URLSearchParams();
@@ -2227,7 +2624,27 @@ function viewHash() {
   const page = filter === "conns" ? "conns/"+connMode : filter === "settings" ? "settings/"+setPane : filter;
   return "#"+page+(q.size ? "?"+q.toString() : "");
 }
-function rememberView() { history.replaceState(viewState(),"",viewHash()); }
+function rememberView() {
+  const state=viewState();
+  if(filter==='overview' || filter==='rank') {
+    const saved={...state};delete saved.primaryViews;
+    primaryViews[filter]=saved;
+  }
+  state.primaryViews={...primaryViews};
+  history.replaceState(state,"",viewHash());
+}
+async function gotoPrimaryView(id) {
+  if(!['overview','rank'].includes(id)) return;
+  closeViewMenu();rememberView();
+  if(filter===id) return;
+  const saved=primaryViews[id];
+  if(!saved) return gotoFilter(id,"",id==='overview'?{style:'list'}:{period,rankMode:'program',traffic:'proxy'});
+  const active=document.activeElement;
+  if(active && document.getElementById('main').contains(active)) active.blur();
+  applyViewState(saved);
+  history.pushState(viewState(),"",viewHash());
+  render(true);tick(true);restoreViewPosition(saved);
+}
 function setLiveStyle(style, dimension=homeDimension) {
   if(!['list','balls'].includes(style)) return;
   closeViewMenu();
@@ -2244,6 +2661,7 @@ async function gotoFilter(id, pane, options = {}) {
   if (ae && document.getElementById("main").contains(ae)) ae.blur();
   if (id === "lanes") { id="rank"; period="all"; rankMode="program"; }
   if (id === "closed") { id="conns"; connMode="closed"; }
+  const origin=(id==='conns' && filter!=='conns') ? {...viewState(),connectionOrigin:null,primaryViews:undefined} : history.state?.connectionOrigin;
   filter=id;
   connectionSite=options.site || "";connectionSubdomains=!!options.subdomains;
   if (options.style) liveStyle=options.style;
@@ -2255,11 +2673,18 @@ async function gotoFilter(id, pane, options = {}) {
   document.getElementById("q").value="";
   if (id !== "conns") {leakOnly=false;connectionRoute="";}
   if (pane) setPane=pane;
-  history.pushState(viewState(),"",viewHash());
+  history.pushState({...viewState(),connectionOrigin:id==='conns'?origin || null:null},"",viewHash());
   render(true);
   document.querySelector(".body").scrollTop=0;window.scrollTo(0,0);
   if (id === "settings") { try { await loadSettings(); } catch(e) { flashToast(tr("读取设置失败：")+e.message); } render(true); }
   tick(true);
+}
+function returnConnections() {
+  const origin=history.state?.connectionOrigin;
+  if(!origin || !['overview','rank','settings'].includes(origin.filter)) return gotoFilter('overview');
+  rememberView();applyViewState(origin);
+  history.pushState({...viewState(),connectionOrigin:null},'',viewHash());
+  render(true);tick(true);restoreViewPosition(origin);
 }
 function openConnections(process = "", mode = "live") {
   rememberView();
@@ -2285,79 +2710,118 @@ function applyHash() {
   if (["all","proxy","direct"].includes(q.get("traffic"))) trafficScope=q.get("traffic");
   rankSort=['proxy','direct','total'].includes(q.get('sort')) ? {key:q.get('sort'),direction:q.get('direction')==='asc'?'asc':'desc'} : {key:null,direction:'desc'};
 }
-function restoreView() {
-  const state=history.state;
-  if (state?.fm) {
-    ({filter,period,rankMode,trafficScope,processScope,connMode,leakOnly,liveStyle,setPane}=state);
-    connectionRoute=state.connectionRoute || "";
-    homeDimension=state.homeDimension || "program";selectedSite=state.selectedSite || "";connectionSite=state.connectionSite || "";connectionSubdomains=!!state.connectionSubdomains;
-    opened.clear();for(const key of state.expanded || []) opened.add(key);
-    rankSort=state.rankSort ? {...state.rankSort} : {key:null,direction:"desc"};
-    well.sel=state.selected || "";
-    document.getElementById("q").value=state.search || "";
-    searchOpen=!!state.search;
-  } else applyHash();
-  render(true); tick(true);
+function applyViewState(state) {
+  ({filter,period,rankMode,trafficScope,processScope,connMode,leakOnly,liveStyle,setPane}=state);
+  connectionRoute=state.connectionRoute || "";
+  homeDimension=state.homeDimension || "program";selectedSite=state.selectedSite || "";connectionSite=state.connectionSite || "";connectionSubdomains=!!state.connectionSubdomains;
+  opened.clear();for(const key of state.expanded || []) opened.add(key);
+  rankSort=state.rankSort ? {...state.rankSort} : {key:null,direction:"desc"};
+  well.sel=state.selected || "";
+  document.getElementById("q").value=state.search || "";
+  searchOpen=state.searchOpen ?? !!state.search;
+  document.getElementById("show-ignored").checked=!!state.showIgnored;
+}
+function restoreViewPosition(state) {
   requestAnimationFrame(()=>{
     document.querySelector(".body").scrollTop=state?.scroll || 0;window.scrollTo(0,state?.scroll || 0);
     const focus=state?.focus && !Array.isArray(state.focus)?Object.entries(state.focus):[];
     if(focus.length) [...document.querySelectorAll('#main button')].find(b=>focus.every(([key,value])=>b.dataset[key]===value))?.focus({preventScroll:true});
   });
 }
+function restoreView() {
+  const state=history.state;
+  if (state?.fm) {
+    primaryViews={...(state.primaryViews || {})};
+    applyViewState(state);
+  } else applyHash();
+  render(true);tick(true);restoreViewPosition(state);
+}
 async function peekUpdate() {
+  if (updateState.busy) return;
   try {
-    updateInfo = await api("/api/update");
-    const btn = document.getElementById("btn-update");
-    if (!btn || btn.dataset.busy === "1") return;
-    if (updateInfo && updateInfo.newer) {
-      btn.classList.add("fresh");
-      btn.textContent = tr("有新版本");
-    } else {
-      btn.classList.remove("fresh");
-      btn.textContent = tr("更新");
-    }
+    const info = await api("/api/update");
+    if (updateState.busy) return;
+    updateInfo = info;
+    paintUpdate();
     if (filter === "settings") render();
   } catch {}
 }
+function updateInstallError() {
+  if (updateInfo?.install_supported === false) return tr(updateInfo.install_error || "源码运行不支持应用内更新，请在 GitHub 获取新版源码或安装包。");
+  if (settingsCache?.frozen === false) return tr("源码运行不支持应用内更新，请在 GitHub 获取新版源码或安装包。");
+  return "";
+}
+function updateErrorText(message) {
+  const text=String(message || ''), translated=tr(text);
+  if(translated!==text) return translated;
+  return text.split('；').map(part=>{
+    const prefix=['更新前保存失败：','未能启动更新重启：','采集尚未恢复，请检查数据目录后重启：','程序累计采集已恢复，但网站明细暂不可用：'].find(value=>part.startsWith(value));
+    return prefix?tr(prefix)+tr(part.slice(prefix.length)):tr(part);
+  }).join('；');
+}
+function paintUpdate() {
+  const btn=document.getElementById("btn-update"), install=document.getElementById("update-install");
+  const busyLabel=updateState.phase==='check'?tr("检查中…"):tr("下载中…");
+  if(btn) {
+    btn.textContent=updateState.restarting?tr("正在重启…"):updateState.busy?busyLabel:updateInfo?.newer?tr("有新版本"):tr("检查更新");
+    btn.classList.toggle("fresh",!!updateInfo?.newer);
+    btn.disabled=updateState.busy || updateState.restarting;
+  }
+  const settingsButton=document.getElementById("btn-settings");
+  if(settingsButton) {
+    settingsButton.classList.toggle('fresh',!!updateInfo?.newer);
+    settingsButton.title=updateInfo?.newer?tr('有新版本 · 设置 → 关于'):tr('设置');
+  }
+  const restriction=updateInstallError();
+  let status=updateState.restarting?tr("已确认保存，正在重启…"):updateState.busy?busyLabel:"";
+  if (!status && updateInfo?.latest) status=updateInfo.newer
+    ? tr("发现新版本 v")+updateInfo.latest+(restriction?"":" · "+tr("下载完成后会保存数据并重启。"))
+    : tr("已是最新版本 v")+(updateInfo.current || updateInfo.latest);
+  document.getElementById("update-status").textContent=status;
+  const error=document.getElementById("update-error");
+  error.textContent=updateState.error || restriction;error.hidden=!error.textContent;
+  const notes=document.getElementById("update-notes");
+  notes.textContent=updateInfo?.notes || "";notes.hidden=!notes.textContent;
+  install.hidden=!updateInfo?.newer || !!restriction;
+  install.disabled=updateState.busy || updateState.restarting;
+  install.textContent=updateState.restarting?tr("正在重启…"):updateState.busy && updateState.phase==='install'?tr("下载中…"):tr("下载并重启");
+}
 async function doUpdate() {
-  const btn = document.getElementById("btn-update");
-  if (!btn || btn.dataset.busy === "1") return;
-  const old = btn.textContent;
-  btn.dataset.busy = "1";
-  btn.disabled = true;
-  let restarting = false;
+  const dialog=document.getElementById("update-dialog");
+  if (!dialog.open) dialog.showModal();
+  if (updateState.busy || updateState.restarting) {paintUpdate();return;}
+  updateState.busy=true;updateState.phase='check';updateState.error="";paintUpdate();
   try {
-    btn.textContent = tr("检查中…");
     updateInfo = await api("/api/update");
-    if (updateInfo && updateInfo.error && !updateInfo.latest) throw new Error(updateInfo.error);
-    if (updateInfo && !updateInfo.newer) {
-      btn.classList.remove("fresh");
-      flashToast(tr("已是最新版本 v") + (updateInfo.current || ""));
-      return;
-    }
-    btn.textContent = tr("下载中…");
-    flashToast(tr("正在下载 GitHub 最新版…"));
+    if (updateInfo?.error) throw new Error(updateInfo.error);
+  } catch (e) {
+    updateState.error=tr("更新失败：")+updateErrorText(e.message);
+  } finally {
+    updateState.busy=false;updateState.phase="";paintUpdate();
+    if (filter==='settings') render();
+  }
+}
+async function installUpdate() {
+  if (updateState.busy || updateState.restarting || !updateInfo?.newer || updateInstallError()) return;
+  updateState.busy=true;updateState.phase='install';updateState.error="";paintUpdate();
+  try {
     const d = await api("/api/update", { body: {}, timeout: 300000 });
     if (d.error) throw new Error(d.error);
-    restarting = true;
-    btn.textContent = tr("正在重启…");
-    flashToast(tr("已下载 v") + (d.latest || "") + tr("，马上重启"));
+    if (!d.ok || !d.restarting) throw new Error(tr("更新尚未进入重启阶段，请重试。"));
+    updateState.restarting=true;
+    flashToast(tr("已确认保存，正在重启…"));
     setTimeout(() => location.reload(), 5000);
   } catch (e) {
-    flashToast(tr("更新失败：") + e.message);
+    updateState.error=tr("更新失败：")+updateErrorText(e.message);
+    flashToast(updateState.error);
   } finally {
-    if (!restarting) {
-      btn.textContent = updateInfo && updateInfo.newer ? tr("有新版本") : old;
-      btn.dataset.busy = "";
-      btn.disabled = false;
-    }
+    updateState.busy=false;updateState.phase="";paintUpdate();
   }
 }
 function renderSettings() {
-  const s = settingsCache || {};
-  const note = s.error
-    ? `<span class="err">${escapeHtml(s.error)}</span>`
-    : (settingsNote ? `<span class="ok">${settingsNote}</span>` : "");
+  if(!settingsCache) return `<div class="settings" id="set-form"><div class="set-body"><p role="${loadSettings.error?'alert':'status'}">${escapeHtml(loadSettings.error || tr('正在读取设置…'))}</p>${loadSettings.loading?'':tr('<button type="button" onclick="loadSettings()">重试</button>')}</div></div>`;
+  const s = settingsCache;
+  const note = `<span id="settings-save-note" role="status" class="${s.error?'err':'ok'}">${escapeHtml(s.error?settingErrorText(s.error):settingsNote)}</span>`;
   const panes = [["general",tr("常规")],["notify",tr("通知")],["connect",tr("Clash 接入")],["data",tr("数据")],["about",tr("关于")]];
   const nav = panes.map(([id, lab]) => `<button type="button" class="${setPane === id ? "on" : ""}" data-pane="${id}">${lab}</button>`).join("");
   const ignored = s.ignored || [];
@@ -2403,51 +2867,64 @@ function renderSettings() {
       <h2>Clash${note}</h2>
       <div class="field">
         <label for="clash-address">外部控制器</label>
-        <input id="clash-address" type="text" value="${escapeHtml(s.clash_api || "")}" onchange="saveSetting('clash_api', this.value)">
+        <input id="clash-address" data-setting="clash_api" type="text" value="${escapeHtml(s.clash_api || "")}" aria-describedby="clash-address-error" oninput="editSettingInput(this)" onchange="saveSetting('clash_api', this.value, false, this)">
+        <p id="clash-address-error" class="err" role="alert" hidden></p>
         <div class="hint">默认 http://127.0.0.1:9090。FlClash / Clash Verge 要先打开外部控制器。TUN 不是必须的。</div>
       </div>
       <div class="field">
         <label>密钥（可选）</label>
         <div class="secret-row">
-          <input type="password" value="" placeholder="${s.clash_secret_set ? tr("已设置（不显示）") : tr("没有就不填")}" autocomplete="off" aria-label="Clash 密钥" onchange="saveSecret('clash_secret', this)">
-          ${s.clash_secret_set ? tr`<button type="button" onclick="saveSetting('clash_secret', '')">清除</button>` : ""}
+          <input id="clash-secret" data-setting="clash_secret" type="password" value="" placeholder="${s.clash_secret_set ? tr("已设置（不显示）") : tr("没有就不填")}" autocomplete="off" aria-label="Clash 密钥" aria-describedby="clash-secret-error" oninput="editSettingInput(this)" onchange="saveSecret('clash_secret', this)">
+          ${s.clash_secret_set ? tr`<button type="button" onclick="saveSetting('clash_secret', '', false, document.getElementById('clash-secret'))">清除</button>` : ""}
         </div>
+        <p id="clash-secret-error" class="err" role="alert" hidden></p>
       </div>
       <div class="acts"><button type="button" onclick="testClash()" ${clashTesting ? "disabled" : ""}>${clashTesting ? tr("检测中…") : tr("测试连接")}</button></div>
-      ${clashNote ? `<p class="${clashNote.startsWith(tr("已接通")) ? "ok" : "hint"}">${escapeHtml(clashNote)}</p>` : ""}
+      ${clashNote ? `<p id="clash-test-note" role="status" style="white-space:pre-line" class="${clashNote.startsWith(tr("已接通")) ? "ok" : "hint"}">${escapeHtml(clashNote)}</p>` : ""}
       <h2>机场账期</h2>
       <div class="field">
         <label>原始订阅地址（可选）</label>
         <div class="secret-row">
-          <input type="password" value="" placeholder="${s.sub_url_set ? escapeHtml(tr("已设置：") + (s.sub_url_hint || tr("（不显示）"))) : "https://…"}" autocomplete="off" aria-label="原始订阅地址" onchange="saveSecret('sub_url', this)">
-          ${s.sub_url_set ? tr`<button type="button" onclick="saveSetting('sub_url', '')">清除</button>` : ""}
+          <input id="sub-url" data-setting="sub_url" type="password" value="" placeholder="${s.sub_url_set ? escapeHtml(tr("已设置：") + (s.sub_url_hint || tr("（不显示）"))) : "https://…"}" autocomplete="off" aria-label="原始订阅地址" aria-describedby="sub-url-error" oninput="editSettingInput(this)" onchange="saveSecret('sub_url', this)">
+          ${s.sub_url_set ? tr`<button type="button" onclick="saveSetting('sub_url', '', false, document.getElementById('sub-url'))">清除</button>` : ""}
         </div>
+        <p id="sub-url-error" class="err" role="alert" hidden></p>
         <div class="hint">填机场给 Clash 的原始订阅；转换器生成的链接通常不带已用 / 总量。已保存的地址和密钥不再显示，要改直接填新的。</div>
       </div>
       <label class="row">
         <input type="checkbox" ${s.show_airport !== false ? "checked" : ""} onchange="saveSetting('show_airport', this.checked)">
         <div>实时页显示订阅用量与到期</div>
-      </label>`;
+      </label>
+      <h2>IPv6 屏蔽</h2>
+      <p class="hint">为指定应用或网站屏蔽 IPv6 新连接，需保持 Monitor 运行。</p>
+      <div class="acts"><button type="button" data-connection-entry>选择应用或网站</button></div>`;
   } else if (setPane === "data") {
     body = tr`
       <h2>数据${note}</h2>
       <p class="path">${escapeHtml(s.data_dir || "")}</p>
       <div class="acts">
         <button type="button" onclick="openDataDir()">打开数据文件夹</button>
-        <button type="button" onclick="openInstallDir()">打开安装目录</button>
-        <button type="button" onclick="copyDiag()">复制诊断信息</button>
-        <button type="button" data-open-drafts>规则草稿</button>
-        <button type="button" data-ipv6-entry>旧 IPv6 方案</button>
       </div>
       <div class="field">
         <label>统计数据保留天数</label>
         <input type="number" min="7" max="365" value="${Number(s.retention_days || 40)}" onchange="saveSetting('retention_days', Number(this.value))">
-        <div class="hint">只影响总体时段统计；按程序的网站明细固定保留 7 天，最多 20,000 行、8 MiB 明细数据库。超限可能缺少部分网站，程序总累计保留。连接记录文件不按这个天数删。卸载程序：打开 Windows 设置 → 应用 → 已安装的应用，找到 Flash Monitor 并卸载；默认保留数据记录。</div>
+        <div class="hint">仅影响总体时段统计，连接记录文件不会随之删除。</div>
       </div>
+      <details class="settings-advanced" id="settings-advanced" ${settingsAdvancedOpen?'open':''} ontoggle="if(this.isConnected) settingsAdvancedOpen=this.open">
+        <summary>高级维护</summary>
+        <div class="acts">
+          <button type="button" onclick="openInstallDir()">打开安装目录</button>
+          <button type="button" onclick="copyDiag()">复制诊断信息</button>
+          <button type="button" data-open-drafts>规则草稿</button>
+          <button type="button" data-ipv6-entry>旧 IPv6 方案</button>
+        </div>
+        <h2>网站明细保留范围</h2>
+        <p class="hint">${tr('按程序的网站明细固定保留 7 天，最多 20,000 行、8 MiB。超限可能缺少部分网站，程序总累计保留。')}</p>
+      </details>
       <div class="danger-zone">
         <h2>清零</h2>
         <p class="hint">清掉累计和各时段统计，从现在重新算。连接记录文件不会删除。</p>
-        <div class="acts"><button type="button" class="danger" onclick="resetTotals()">清零累计和统计</button></div>
+        <div class="acts"><button type="button" class="danger" onclick="resetTotals()" ${resetBusy || last?.status?.storage?.reset_pending ? "disabled" : ""}>${resetBusy ? tr("正在清零…") : last?.status?.storage?.reset_pending ? tr("清零等待保存") : tr("清零累计和统计")}</button></div>
       </div>`;
   } else if (setPane === "about") {
     body = tr`
@@ -2461,15 +2938,17 @@ function renderSettings() {
       <p>看 FlClash / mihomo 把哪些程序、哪些网站分到了代理还是直连。只监听 127.0.0.1，记录留在这台电脑上。</p>
       <p id="upd-note" class="hint">${updateInfo && updateInfo.latest ? (
         updateInfo.newer
-          ? tr`GitHub 上有新版本 v${escapeHtml(updateInfo.latest)}，点右上角「有新版本」下载并重启。`
+          ? tr("发现新版本 v")+escapeHtml(updateInfo.latest)+"。"+tr("查看版本说明，再选择是否下载并重启。")
           : tr`已是最新（GitHub v${escapeHtml(updateInfo.latest || s.version || "")}）。`
-      ) : tr("点右上角「更新」检查 GitHub 发行版。")}</p>
+      ) : tr("点击下方按钮检查 GitHub 发行版。")}</p>
       <div class="acts">
-        <button type="button" onclick="doUpdate()">检查更新</button>
+        <button type="button" id="btn-update" class="upd${updateInfo?.newer?' fresh':''}" onclick="doUpdate()" ${updateState.busy || updateState.restarting?'disabled':''}>${updateState.restarting?tr('正在重启…'):updateState.busy?(updateState.phase==='check'?tr('检查中…'):tr('下载中…')):updateInfo?.newer?tr('有新版本'):tr('检查更新')}</button>
         <button type="button" onclick="openGithub()">GitHub</button>
       </div>
       <h2>快捷键</h2>
       <p class="hint"><span class="kbd">1</span> 实时 · <span class="kbd">2</span> 统计 · <span class="kbd">3</span> 连接 · <span class="kbd">6</span> 设置 · <span class="kbd">/</span> 搜索 · <span class="kbd">Esc</span> 清空搜索</p>
+      <h2>卸载</h2>
+      <p class="hint">${tr('打开 Windows 设置 → 应用 → 已安装的应用，找到 Flash Monitor 并卸载；默认保留数据记录。')}</p>
       <h2>签名与 Defender</h2>
       <p class="hint">安装版没有代码签名。Defender 若误报 Bearfoos 并删掉 exe，到「Windows 安全中心 → 保护历史记录」允许；流量记录还在数据目录。</p>
       <p class="hint">© 2026 finnheihei · MIT License</p>`;
@@ -2489,10 +2968,15 @@ function renderSettings() {
         <div>关闭窗口时藏到托盘<div class="hint">采集不停。彻底退出用托盘菜单「退出 Flash Monitor」。</div></div>
       </label>
       <h2>忽略的程序<span class="sub">${ignored.length ? ignored.length + tr(" 个") : ""}</span></h2>
-      <p class="hint">忽略后不出现在实时程序列表、统计和托盘提示里。系统噪音默认已忽略。</p>
+      <p class="hint">忽略后从实时与用量的程序列表隐藏，并停止新程序提醒；网站、节点统计仍包含这些程序的流量。系统噪音默认已忽略。</p>
       ${ign}`;
   }
-  return `<div class="settings" id="set-form"><aside class="set-nav">${nav}</aside><div class="set-body">${body}</div></div>`;
+  body=body.replace(/<input\b[^>]*onchange="saveSetting\('([^']+)'[^>]*>/g,(markup,key)=>{
+    const state=settingsSaveStates.get(key);
+    return !state?.error || state.inputId ? markup : markup+`<span class="err" role="alert" data-setting-error="${key}">${escapeHtml(state.error)} <button type="button" onclick="retrySetting('${key}')">${tr('重试')}</button></span>`;
+  });
+  const readError=loadSettings.error?`<p class="err" role="alert">${escapeHtml(loadSettings.error)} <button type="button" onclick="loadSettings()">${tr('重试')}</button></p>`:'';
+  return `<div class="settings" id="set-form"><aside class="set-nav">${nav}</aside><div class="set-body">${readError}${body}</div></div>`;
 }
 function bindChartCanvas(canvas) {
   if (!canvas || canvas.dataset.chartBound === "1") return;
@@ -3161,7 +3645,7 @@ function destRowHtml(dests, process='') {
   if (!dests.length) return tr`<div class="side-empty">现在没有活跃的远端</div>`;
   return dests.map(d => {
     const tag = routePill(routeStatus(d.flows));
-    return tr`<div class="dest-row" data-live-key="dest:${escapeHtml(d.host)}">${tag}<span class="host" title="${escapeHtml(d.host)}">${escapeHtml(d.host)}</span><span class="n">${d.n} 条连接</span>${process?disconnectButton(d.flows,true):''}${moreButton('',d.host,false)}</div>`;
+    return tr`<div class="dest-row" data-live-key="dest:${escapeHtml(d.host)}">${tag}<span class="host" title="${escapeHtml(d.host)}">${escapeHtml(d.host)}</span><span class="n">${d.n} 条连接</span>${process?disconnectButton(d.flows,true):''}${moreButton(process,d.host,false)}</div>`;
   }).join("");
 }
 function wellSideHtml() {
@@ -3247,7 +3731,7 @@ function livePrograms() {
     counts.set(f.process,(counts.get(f.process) || 0)+Number(f.n || 1));
   }
   for (const [name,n] of counts) bag.get(name).conns=n;
-  return [...bag.values()].filter(p=>!isIgnored(p.process));
+  return arrangeRows([...bag.values()].filter(p=>!isIgnored(p.process)));
 }
 // Outbound is authoritative; an unknown system-proxy/TUN ingress is not an outbound route.
 function flowRouteKind(f) {
@@ -3320,23 +3804,23 @@ function matchesSite(f,site,subdomains=false) {
   const host=flowHost(f),needle=site.toLowerCase();
   return host===needle || (subdomains && siteType(needle)===tr('域名') && host.endsWith('.'+needle));
 }
-function liveSites() {
+function liveSites(unfiltered=false) {
   const bag=new Map();
   for(const f of last?.flows || []) {
     if(isIgnored(f.process)) continue;
     const site=flowHost(f) || tr('未知');
-    if(!hit(site,f.process,labelOf(f.process,f.title))) continue;
+    if(!unfiltered && !hit(site,f.process,labelOf(f.process,f.title))) continue;
     let r=bag.get(site);
     if(!r) {r={site,flows:[],programs:new Set(),n:0,download:0,upload:0};bag.set(site,r);}
     r.flows.push(f);r.programs.add(f.process);r.n+=Number(f.n || 1);r.download+=byteValue(f.download);r.upload+=byteValue(f.upload);
   }
-  return [...bag.values()].filter(r=>homeScope==='all' || r.flows.some(f=>flowRouteKind(f)==='proxy'))
+  return [...bag.values()].filter(r=>unfiltered || homeScope==='all' || r.flows.some(f=>flowRouteKind(f)==='proxy'))
     .sort((a,b)=>statTotal(b)-statTotal(a)||a.site.localeCompare(b.site));
 }
 function renderLiveSites() {
-  const rows=liveSites();
-  if(!rows.length) return `<div class="empty">${homeEmptyText()}</div>`;
-  return tr`<p class="list-note">显示当前连接已传输的字节；历史消耗请查看「用量」。</p>`+tableWrap(tr('<th class="grow">网站 / 远端</th><th>连接方式</th><th class="num">连接流量</th><th class="action-col"><span class="sr-only">操作</span></th>'),rows.map(r=>{
+  const rows=liveSites(),count=tr`<p class="list-note">当前显示 ${rows.length} / 共 ${liveSites(true).length} 个网站（不含已忽略程序）</p>`;
+  if(!rows.length) return count+`<div class="empty">${homeEmptyText()}</div>`;
+  return count+tr`<p class="list-note">显示当前连接已传输的字节；历史消耗请查看「用量」。</p>`+tableWrap(tr('<th class="grow">网站 / 远端</th><th>连接方式</th><th class="num">连接流量</th><th class="action-col"><span class="sr-only">操作</span></th>'),rows.map(r=>{
     const open=selectedSite===r.site,route=routeStatus(r.flows);
     const programs=[...r.programs].map(process=>{
       const flows=r.flows.filter(f=>f.process===process),name=labelOf(process,flows[0]?.title);
@@ -3347,9 +3831,9 @@ function renderLiveSites() {
 }
 function renderLiveList() {
   if(homeDimension==='site') return renderLiveSites();
-  const rows=visibleHomePrograms();
-  if(!rows.length) return `<div class="empty">${homeEmptyText()}</div>`;
-  return tableWrap(tr('<th class="grow">程序 · 展开查看网站</th><th>连接方式</th><th class="num">下载 / 上传</th><th class="action-col"><span class="sr-only">操作</span></th>'),rows.map(p=>{
+  const rows=visibleHomePrograms(),count=tr`<p class="list-note">当前显示 ${rows.length} / 共 ${livePrograms().length} 个程序（不含已忽略程序）</p>`;
+  if(!rows.length) return count+`<div class="empty">${homeEmptyText()}</div>`;
+  return count+tableWrap(tr('<th class="grow">程序 · 展开查看网站</th><th>连接方式</th><th class="num">下载 / 上传</th><th class="action-col"><span class="sr-only">操作</span></th>'),rows.map(p=>{
     const selected=well.sel===p.process,route=liveRouteStatus(p);
     return tr`<tr data-live-key="program:${escapeHtml(p.process)}" data-context-process="${escapeHtml(p.process)}" class="${selected?'selected':''}"><td class="grow"><button class="program-pick rank-name" data-program="${escapeHtml(p.process)}" aria-label="${escapeHtml(labelOf(p.process,p.title))}" aria-expanded="${selected}"><span class="fold${selected?' open':''}">${SVG_CHEV}</span>${iconImg(p.process,p.title)}<span class="name-stack">${nameHtml(p.process,p.title)}<small class="sub">${p.conns || 0} 条连接</small></span></button></td><td class="route-cell">${routePill(route)}</td><td class="num live-speed">${p.unmeasured?tr('<span class="sub">速率未知</span>'):`<span>↓ ${fmtSpeed(p.down)}</span><span class="row-up">↑ ${fmtSpeed(p.up)}</span>`}</td><td class="action-col">${moreButton(p.process)}</td></tr>${selected?tr`<tr data-live-key="detail:${escapeHtml(p.process)}" class="program-detail"><td colspan="4"><div id="well-side" aria-label="程序详情">${wellSideHtml()}</div></td></tr>`:''}`;
   }).join(''));
@@ -3358,7 +3842,7 @@ function liveSummary() {
   const live=last?.live;
   if(!live) return '';
   const proxy=byteValue(live.proxy_down)+byteValue(live.proxy_up),direct=byteValue(live.direct_down)+byteValue(live.direct_up);
-  return tr`<section class="usage-summary live-summary" aria-label="当前速率"><div class="usage-primary"><span class="metric-label">代理速率${staleData()?tr(' · 上次数据'):''}</span><strong>${fmtSpeed(proxy)}</strong><span class="sub">连接采样 · 下载 + 上传</span></div><div class="usage-metric"><span class="metric-label">直连速率</span><b>${fmtSpeed(direct)}</b></div><div class="usage-metric"><span class="metric-label">内核下载 / 上传</span><b class="summary-speed">↓ ${fmtSpeed(live.down)}</b><small class="sub">↑ ${fmtSpeed(live.up)}</small></div><div class="usage-metric"><span class="metric-label">活跃程序</span><b>${livePrograms().length}<small> 个</small></b></div></section>`;
+  return tr`<section class="usage-summary live-summary" aria-label="当前速率"><div class="usage-primary"><span class="metric-label">代理速率${staleData()?tr(' · 上次数据'):''}</span><strong>${fmtSpeed(proxy)}</strong><span class="sub">全部连接速率 · 不随列表筛选变化</span></div><div class="usage-metric"><span class="metric-label">直连速率</span><b>${fmtSpeed(direct)}</b></div><div class="usage-metric"><span class="metric-label">内核下载 / 上传</span><b class="summary-speed">↓ ${fmtSpeed(live.down)}</b><small class="sub">↑ ${fmtSpeed(live.up)}</small></div><div class="usage-metric"><span class="metric-label">未忽略的活跃程序</span><b>${livePrograms().length}<small> 个</small></b></div></section>`;
 }
 function paintOverview(force) {
   if(well.sel && !visibleHomePrograms().some(p=>p.process===well.sel)) {well.sel="";rememberView();}
@@ -3371,8 +3855,9 @@ function paintOverview(force) {
   } else {
     wellStop();
     const main=document.getElementById("main");
-    if (!main.querySelector(".live-page")) setHtml(main,tr`<div class="live-page"><div id="live-summary"></div><section id="live-programs" aria-label="活跃程序"></section></div>`,true);
+    if (!main.querySelector(".live-page")) setHtml(main,tr`<div class="live-page"><div id="live-summary"></div><div id="live-subscription"></div><section id="live-programs" aria-label="活跃程序"></section></div>`,true);
     setHtml(document.getElementById("live-summary"),liveSummary(),force);
+    paintSubscription();
     setHtml(document.getElementById("live-programs"),renderLiveList(),force);
   }
 }
@@ -3403,16 +3888,33 @@ function paintContext() {
   if (filter === "overview") {
     html=tr`<div class="page-title"><h2>实时</h2><p>看清程序和网站正在走哪条连接</p></div><div class="context-controls">${liveStyle==='balls'?tr`<button type="button" class="btn view-return" data-live-key="return-list" data-live-style="list">${SVG_CHEV}返回列表</button>`:''}<div class="period" role="group" aria-label="实时维度">${[['program',tr('程序')],['site',tr('网站')]].map(([id,label])=>`<button data-home-dimension="${id}" data-live-key="dimension-${id}" class="${liveStyle==='list' && homeDimension===id?'on':''}" aria-pressed="${liveStyle==='list' && homeDimension===id}">${label}</button>`).join('')}</div><div class="period home-scope" role="group" aria-label="首页程序范围">${[['all',tr('全部')],['proxy',tr('有代理连接')]].map(([value,label])=>`<button data-live-key="home-scope-${value}" data-home-scope="${value}" class="${homeScope===value?'on':''}" aria-pressed="${homeScope===value}">${label}</button>`).join('')}</div><span class="tools-gap"></span>${liveStyle==='list'?tr('<button type="button" class="link" data-live-key="open-balls" data-live-style="balls">小球视图</button>'):tr('<span class="sub">小球视图 · Esc 返回</span>')}<button class="link" data-live-key="nav-connections" data-connections="">全部连接 →</button>${homeScopeError?tr('<button class="link" data-home-retry>范围未保存 · 重试</button>'):''}</div>`;
   }
-  if(filter==='rank') html=tr('<div class="page-title"><h2>用量</h2><p>找出谁用掉了代理流量</p></div>');
+  if(filter==='rank') html=tr('<div class="page-title"><h2>用量</h2><p>查看程序、网站与节点用了多少流量</p></div>');
 
   if (filter === "conns") html=tr`<button class="btn" data-live-key="nav-back" data-back>返回</button><h2>连接</h2><div class="period" aria-label="连接状态"><button data-live-key="conn-live" data-conn-mode="live" class="${connMode==='live'?'on':''}" aria-pressed="${connMode==='live'}">实时</button><button data-live-key="conn-closed" data-conn-mode="closed" class="${connMode==='closed'?'on':''}" aria-pressed="${connMode==='closed'}">最近结束</button></div>`;
-  if(connectionSite && filter==='conns') html+=tr`<span class="scope">网站：${escapeHtml(connectionSite)}</span>`;
-  if (processScope && (filter === "conns" || filter === "rank")) html+=tr`<span class="scope name-scope">程序：${nameHtml(processScope)}</span><button class="link" data-live-key="nav-clear-scope" data-clear-scope>查看全部程序</button>`;
+  const activeFilters=resultFilters();
+  if(activeFilters.length) html+=tr`<div class="context-controls" data-result-filters aria-label="当前筛选">${activeFilters.map(([key,label])=>`<span class="scope" data-result-filter="${key}">${escapeHtml(label)}</span>${key==='site'?tr('<button type="button" class="link" data-live-key="nav-clear-site" data-clear-site>清除网站筛选</button>'):key==='program'?tr('<button type="button" class="link" data-live-key="nav-clear-scope" data-clear-scope>清除程序筛选</button>'):''}`).join('')}${resultFilterRecovery()}</div>`;
   document.getElementById("context-tools").hidden=!html;
   setHtml(document.getElementById("context-tools"),html,true);
   const feedback=document.getElementById("feedback");
   feedback.hidden=!staleData();
   setHtml(feedback,staleData() ? tr`<div class="note warn"><span>${escapeHtml(pollError ? tr("后台连接中断") : tr("采集失败"))} · ${snapshotAt ? tr("以下为上次成功读取的数据（")+new Date(snapshotAt).toLocaleTimeString(UI_LOCALE)+"）" : tr("尚未读到数据")}。${escapeHtml(pollError || collectError)}</span><button type="button" onclick="tick(true)">重试</button></div>` : "",true);
+}
+function clearResultScope(kind) {
+  if(kind==='site') {connectionSite='';connectionSubdomains=false;}
+  else if(kind==='program') processScope='';
+  else return;
+  rememberView();render(true);
+  const context=document.getElementById('context-tools');context.tabIndex=-1;context.focus({preventScroll:true});
+}
+function clearResultFilters() {
+  if(!['rank','conns'].includes(filter)) return;
+  document.getElementById('q').value='';
+  processScope='';connectionSite='';connectionSubdomains=false;
+  trafficScope='all';leakOnly=false;connectionRoute='';
+  if(filter==='conns') connMode='live';
+  rememberView();render(true);
+  if(filter==='conns') tick(true);
+  const context=document.getElementById('context-tools');context.tabIndex=-1;context.focus({preventScroll:true});
 }
 async function closeConnections(ids) {
   ids=connectionIds([{ids}]);
@@ -3470,6 +3972,8 @@ async function refreshData() {
 }
 document.getElementById('btn-refresh').onclick=refreshData;
 function paintChrome() {
+  const close=document.querySelector('[data-win="close"]');
+  if(close) {const label=settingsCache?.close_to_tray===false?tr('退出 Flash Monitor'):tr('隐藏到托盘，继续采集');close.title=label;close.setAttribute('aria-label',label);}
   paintRefresh();
   const st = healthState();
   const live = (last && last.live) || {};
@@ -3506,9 +4010,9 @@ function paintSetup() {
     </ol>
     <div class="acts">
       <button type="button" class="primary" onclick="testClash()" ${clashTesting ? "disabled" : ""}>${clashTesting ? tr("检测中…") : tr("测试连接")}</button>
-      <button type="button" onclick="gotoFilter('settings','connect')">打开连接设置</button>
+      <button type="button" onclick="gotoFilter('settings','connect')">打开 Clash 接入设置</button>
     </div>
-    ${clashNote ? `<p class="hint">${escapeHtml(clashNote)}</p>` : ""}`);
+    ${clashNote ? `<p class="hint" role="status" style="white-space:pre-line">${escapeHtml(clashNote)}</p>` : ""}`);
 }
 function unitParts(text) {
   const s = String(text == null ? "0" : text);
@@ -3552,6 +4056,47 @@ function healthState() {
   if (mode === tr("未接管")) return { cls: "warn", text: tr("未接管"), tip: tr("TUN 和系统代理都没开，流量没经过 Clash\n") + tip };
   return { cls: "ok", text: mode, tip };
 }
+function noticeLocalDay() {
+  const now=new Date();
+  return [now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
+}
+function noticeDayState() {
+  const day=noticeLocalDay();
+  if(noticeState?.day===day) return noticeState;
+  let saved=null;
+  try {saved=JSON.parse(localStorage.getItem(NOTICE_STATE_KEY) || 'null');} catch {}
+  const collapsed=saved?.day===day && saved.collapsed===true;
+  const seen=collapsed && Array.isArray(saved.seen) ? saved.seen.filter(key=>typeof key==='string').slice(-256) : [];
+  noticeState={day,collapsed,open:!collapsed,seen:new Set(seen)};
+  return noticeState;
+}
+function saveNoticeState(state) {
+  try {localStorage.setItem(NOTICE_STATE_KEY,JSON.stringify({day:state.day,collapsed:state.collapsed,seen:[...state.seen].slice(-256)}));} catch {}
+}
+function noticeEventKey(event,day) {
+  return event.kind==='new' ? 'new:'+newEventKey(event) : JSON.stringify([event.kind,event.process || '',event.stats_day || day]);
+}
+function collapseNotices(keys) {
+  const state=noticeDayState();
+  state.collapsed=true;state.open=false;state.seen=new Set(keys);
+  saveNoticeState(state);
+  const box=document.getElementById('quota'),group=box?.querySelector('[data-notice-group]');
+  if(group) group.open=false;
+  paintNotices();
+  box?.querySelector('[data-notice-summary]')?.focus({preventScroll:true});
+}
+function bindNoticeGroup(box,keys) {
+  const group=box.querySelector('[data-notice-group]');
+  if(!group) return;
+  group.ontoggle=()=>{
+    const state=noticeDayState();
+    if(!group.isConnected || group.dataset.noticeDay!==state.day) return;
+    state.open=group.open;
+    paintNotices();
+  };
+  const collapse=box.querySelector('[data-collapse-notices]');
+  if(collapse) collapse.onclick=()=>collapseNotices(keys);
+}
 function paintNotices() {
   const box = document.getElementById("quota");
   if (!box) return;
@@ -3559,57 +4104,103 @@ function paintNotices() {
   const alerts = (last && !last.error && last.alerts) || [];
   const out = [];
   const storage=s.storage;
-  if(storage && (storage.persistent===false || storage.healthy===false || storage.detail_healthy===false)) {
-    const message=storage.persistent===false?tr('统计未持久保存，退出后可能丢失'):storage.last_error || (storage.detail_healthy===false?tr('网站明细暂不可用；程序累计状态单独保存'):tr('统计保存失败，仍有数据待保存'));
-    out.push(`<div class="note warn" role="status"><span>${escapeHtml(String(message).slice(0,240))}${storage.pending?tr(' · 等待保存'):''}</span></div>`);
+  if(storage && (storage.reset_pending || storage.persistent===false || storage.healthy===false || storage.detail_healthy===false)) {
+    const message=storage.reset_pending?tr('清零尚未全部保存，请保持程序运行；系统会自动重试。'):storage.persistent===false?tr('统计未持久保存，退出后可能丢失'):storage.last_error || (storage.detail_healthy===false?tr('网站明细暂不可用；程序累计状态单独保存'):tr('统计保存失败，仍有数据待保存'));
+    out.push(`<div class="note warn notice-error" role="status" data-live-key="notice-storage"><span>${escapeHtml(String(message).slice(0,240))}${storage.pending?tr(' · 等待保存'):''}</span></div>`);
   }
+  let keys=[];
   if (filter !== "settings") {
-    const news = prefs().show_new_banner === false ? [] : alerts.filter(a => a.kind === "new" && !acknowledgedNew.has(newEventKey(a)));
+    const state=noticeDayState(),group=box.querySelector('[data-notice-group]');
+    if(group?.dataset.noticeDay===state.day) state.open=group.open;
+    const regular=[...new Map(alerts.filter(a=>['new','total','program'].includes(a.kind)
+      && (a.kind!=='new' || (prefs().show_new_banner!==false && !acknowledgedNew.has(newEventKey(a)))))
+      .map(a=>[noticeEventKey(a,state.day),a])).values()];
+    keys=regular.map(a=>noticeEventKey(a,state.day));
+    const unseen=keys.filter(key=>!state.seen.has(key)).length;
+    if(state.open && unseen) {for(const key of keys) state.seen.add(key);if(state.collapsed) saveNoticeState(state);}
+    const news=regular.filter(a=>a.kind==='new'),items=[];
     displayedNew=news.map(a=>({process:a.process,ts:Number(a.ts || 0)}));
     if (news.length) {
       const names = news.slice(0, 4).map(a => labelOf(a.process)).join("、") + (news.length > 4 ? tr` 等 ${news.length} 个` : "");
-      out.push(tr`<div class="note"><span class="dot"></span><span><b>${escapeHtml(names)}</b> 开始走网了</span><button type="button" data-ack-new ${newAckBusy ? "disabled" : ""}>${newAckBusy ? tr("正在确认…") : tr("知道了")}</button>${newAckError ? `<span role="alert">${escapeHtml(newAckError)}</span>` : ""}</div>`);
+      items.push(tr`<div class="note" data-live-key="notice-new"><span class="dot"></span><span><b>${escapeHtml(names)}</b> 开始走网了</span><button type="button" data-ack-new ${newAckBusy ? "disabled" : ""}>${newAckBusy ? tr("正在确认…") : tr("知道了")}</button></div>`);
     }
-    const total = alerts.find(a => a.kind === "total");
+    const total = regular.find(a => a.kind === "total");
     if (total) {
-      out.push(tr`<div class="note warn"><span class="dot"></span><span>今天合计已用 <b>${fmtBytes(total.used)}</b>，超过提醒值 ${fmtBytes(total.limit)}</span></div>`);
+      items.push(tr`<div class="note warn" data-live-key="notice-total"><span class="dot"></span><span>今天合计已用 <b>${fmtBytes(total.used)}</b>，超过提醒值 ${fmtBytes(total.limit)}</span></div>`);
     }
-    const progs = alerts.filter(a => a.kind === "program");
+    const progs = regular.filter(a => a.kind === "program");
     if (progs.length) {
       const names = progs.slice(0, 4).map(a => labelOf(a.process)).join("、") + (progs.length > 4 ? tr` 等 ${progs.length} 个` : "");
-      out.push(tr`<div class="note warn"><span class="dot"></span><span><b>${escapeHtml(names)}</b> 今天已超过单个程序的提醒值 ${fmtBytes(progs[0].limit)}</span></div>`);
+      items.push(tr`<div class="note warn" data-live-key="notice-program"><span class="dot"></span><span><b>${escapeHtml(names)}</b> 今天已超过单个程序的提醒值 ${fmtBytes(progs[0].limit)}</span></div>`);
     }
-  }
+    if(newAckError && news.length) {
+      out.push(`<div class="note warn notice-error" role="alert" data-live-key="notice-ack-error"><span>${escapeHtml(newAckError)}</span></div>`);
+    }
+    if(keys.length) {
+      out.push(`<details class="notice-group" data-live-key="notice-group" data-notice-group data-notice-day="${state.day}" ${state.open?'open':''}>
+        <summary data-notice-summary><span class="notice-summary-content"><b>${tr`今日 ${keys.length} 项提醒`}</b>${!state.open && unseen?`<span class="notice-new-count" role="status">${tr`新增 ${unseen} 项提醒`}</span>`:''}<span class="notice-summary-action">${state.open?tr('收起'):tr('查看提醒')}</span></span></summary>
+        <div class="notice-items">${items.join('')}</div>
+        <div class="notice-actions"><span class="hint">${tr('收起后，新提醒仍会更新数量。')}</span><button type="button" class="btn" data-collapse-notices>${tr('今天收起')}</button></div>
+      </details>`);
+    }
+  } else displayedNew=[];
   box.hidden = !out.length;
-  const focusAck=box.contains(document.activeElement) && document.activeElement?.hasAttribute('data-ack-new');
+  const active=box.contains(document.activeElement) ? document.activeElement : null;
+  const focused=active?.hasAttribute('data-ack-new')?'[data-ack-new]':active?.hasAttribute('data-notice-summary')?'[data-notice-summary]':active?.hasAttribute('data-collapse-notices')?'[data-collapse-notices]':null;
   // Explicit acknowledgement owns this refresh; interaction holds must not preserve old notices.
   hold.pending.delete(box);patchLive(box,out.join(""));
-  if(focusAck) (box.querySelector('[data-ack-new]') || document.querySelector('#filters button.on') || document.getElementById('btn-search')).focus({preventScroll:true});
+  bindNoticeGroup(box,keys);
+  if(focused && !active.isConnected) (box.querySelector(focused) || box.querySelector('[data-notice-summary]') || document.querySelector('#filters button.on') || document.getElementById('btn-search'))?.focus({preventScroll:true});
 }
-function airportCell() {
+function airportData() {
   const sub = (last && last.sub) || {};
-  const used = Number(sub.used || 0);
-  const total = Number(sub.total || 0);
-  const refresh = tr`<button type="button" class="icon-btn" data-refresh-sub="1" title="刷新账期" aria-label="刷新账期">${SVG_REFRESH}</button>`;
-  if (!total && !used) {
-    return "";
-  }
+  const used = byteValue(sub.used), total = byteValue(sub.total);
+  const status=['loading','ready','cached','error'].includes(sub.status)?sub.status:'';
+  if (!total && !used && !status) return null;
   const usedPct = total ? Math.min(100, Math.round(1000 * used / total) / 10) : 0;
+  return {label:String(sub.label || ""),used,total,usedPct,expire:Number(sub.expire || 0),status,hasUsage:!!(used || total),updatedAt:Number(sub.updated_at || 0)};
+}
+function airportStatus(data) {
+  let message=data.status==='loading'?(data.hasUsage?tr('正在刷新，暂显示上次数据'):tr('正在读取订阅…')):data.status==='error'?(data.hasUsage?tr('刷新失败，显示上次数据'):tr('无法读取用量，请检查订阅地址或稍后重试。')):data.status==='cached'?tr('缓存数据'):'';
+  const date=new Date(data.updatedAt*1000);
+  if(data.updatedAt>0 && !Number.isNaN(date.getTime())) message+=(message?' · ':'')+tr('更新于 ')+date.toLocaleString(UI_LOCALE,{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+  return message?`<span class="subscription-status ${data.status==='error'?'err':'sub'}" role="status">${escapeHtml(message)}</span>`:'';
+}
+function airportExpiry(data) {
   let exp = "";
-  if (sub.expire) {
-    const d = new Date(Number(sub.expire) * 1000);
+  if (data.expire > 0) {
+    const d = new Date(data.expire * 1000);
     const days = Math.ceil((d.getTime() - Date.now()) / 86400000);
     if (!Number.isNaN(days)) {
       exp = tr`<span class="k-r" title="到期 ${escapeHtml(d.toLocaleDateString(UI_LOCALE))}">${days > 0 ? tr`${days} 天后到期` : tr`<span class="leak-tag">已到期</span>`}</span>`;
     }
   }
+  return exp;
+}
+function subscriptionSummary() {
+  const data = airportData();
+  if (!airportOn() || !data) return "";
+  if(!data.hasUsage) return `<div class="subscription-summary subscription-empty" data-live-key="subscription">${airportCell(data)}</div>`;
+  const remaining = data.total ? tr`<span>剩余 <b>${fmtQuota(Math.max(0,data.total-data.used))}</b></span>` : "";
+  return tr`<details class="subscription-summary" data-live-key="subscription"><summary><span class="subscription-name" title="${escapeHtml(data.label)}">${escapeHtml(data.label ? tr("机场 · ")+data.label : tr("机场账期"))}</span>${remaining}<span>已用 <b>${fmtQuota(data.used)}</b></span>${airportExpiry(data)}${airportStatus(data)}</summary><div class="subscription-detail">${airportCell(data)}</div></details>`;
+}
+function paintSubscription() {
+  const el = document.getElementById("live-subscription");
+  // Keep the native disclosure, its open state and focused refresh button across polls.
+  if (el) patchLive(el,subscriptionSummary());
+}
+function airportCell(data = airportData()) {
+  if (!data) return "";
+  const {used,total,usedPct} = data;
+  const refresh = tr`<button type="button" class="${data.hasUsage?'icon-btn':'btn'}" data-refresh-sub="1" ${refreshSub.pending || data.status==='loading' ? 'disabled' : ''} title="刷新账期" aria-label="刷新账期">${data.hasUsage?SVG_REFRESH:data.status==='error'?tr('重试'):tr('刷新账期')}</button>`;
+  if(!data.hasUsage) return `<div class="cell air"><div class="k"><span class="lab">${tr('机场账期')}</span>${refresh}</div>${airportStatus(data)}</div>`;
   const meterCls = usedPct >= 100 ? " full" : usedPct >= 90 ? " hot" : "";
   const head = total ? bigNum(fmtQuota(Math.max(0, total - used)), "big", tr("剩余")) : bigNum(fmtQuota(used), "big", tr("已用"));
   return tr`<div class="cell air">
-    <div class="k"><span class="lab" title="${escapeHtml(sub.label || "")}">${escapeHtml(sub.label ? tr("机场 · ") + sub.label : tr("机场"))}</span>${exp}${refresh}</div>
+    <div class="k"><span class="lab" title="${escapeHtml(data.label)}">${escapeHtml(data.label ? tr("机场 · ") + data.label : tr("机场"))}</span>${airportExpiry(data)}${refresh}</div>
     ${head}
     <div class="meter${meterCls}"><i style="width:${Math.max(1, usedPct)}%"></i></div>
-    <div class="legend"><span>已用 <b>${fmtQuota(used)}</b>${total ? ` / ${fmtQuota(total)} · ${usedPct}%` : ""}</span></div>
+    <div class="legend"><span>已用 <b>${fmtQuota(used)}</b>${total ? ` / ${fmtQuota(total)} · ${usedPct}%` : ""}</span></div>${airportStatus(data)}
   </div>`;
 }
 function paintHero(force) {
@@ -3617,8 +4208,9 @@ function paintHero(force) {
   if (!el) return;
   if (!last || last.error) {
     const cell = (cls, k) => tr`<div class="cell ${cls}"><div class="k">${k}</div><span class="big muted">—</span><div class="split"></div><div class="legend"><span>正在读取…</span></div></div>`;
-    el.classList.toggle("no-air", !airportOn());
-    setHtml(el, cell("now", tr("此刻")) + cell("today", tr("今天")) + (airportOn() ? cell("air", tr("机场账期")) : ""), force);
+    const air = airportOn() ? airportCell() : "";
+    el.classList.toggle("no-air", !air);
+    setHtml(el, cell("now", tr("此刻")) + cell("today", tr("今天")) + air, force);
     return;
   }
   const live = last.live || {};
@@ -3665,15 +4257,33 @@ function splitBar(p, d, max) {
 }
 
 async function resetTotals() {
-  if (!confirm(tr("清零累计和各时段统计？连接记录文件不会删除。"))) return;
-  try {
-    await api("/api/reset", { body: {} });
-    flashToast(tr("已清零"));
-  } catch (e) {
-    flashToast(tr("清零失败 ") + e.message);
+  if (resetBusy) return;
+  if (last?.status?.storage?.reset_pending) {
+    flashToast(tr("清零尚未全部保存，请保持程序运行；系统会自动重试。"));
+    return;
   }
-  opened.clear();
-  tick(true);
+  if (!confirm(tr("清零累计和各时段统计？连接记录文件不会删除。"))) return;
+  resetBusy = true;
+  render(true);
+  try {
+    const result = await api("/api/reset", { body: {} });
+    if (result.pending) {
+      if (last) last.status = {...last.status, storage: {...last.status?.storage, reset_pending: true}};
+      opened.clear();
+      flashToast(tr(result.error || "清零尚未全部保存，请保持程序运行；系统会自动重试。"));
+    } else if (result.ok === true && result.persisted === true) {
+      opened.clear();
+      flashToast(tr("已清零"));
+    } else {
+      throw new Error(tr(result.error || "清零结果未确认，请检查统计状态后再试。"));
+    }
+  } catch (e) {
+    flashToast(tr("清零失败 ") + tr(e.message));
+  } finally {
+    resetBusy = false;
+    render(true);
+    tick(true);
+  }
 }
 function shareText(v) {
   const n = Number(v || 0);
@@ -3703,6 +4313,7 @@ function render(force) {
   document.querySelector(".tools").style.display=isRank || isConns ? "flex" : "none";
   document.getElementById("filter-options").hidden=!(isRank || isConns);
   document.getElementById("filter-summary").textContent=isRank ? tr`筛选 · ${periodLabel()} · ${(RANK_MODES.find(m=>m[0]===rankMode)||[])[1]}${trafficScope==='all'||rankMode==='node'?'':trafficScope==='proxy'?tr(' · 有代理流量'):tr(' · 有直连流量')}` : tr`筛选${leakOnly?tr(' · 仅绕过 TUN'):''}`;
+  paintSearchContext();
   document.querySelector(".search").hidden=isSet || !searchOpen;
   document.getElementById("btn-search").hidden=isSet;
   document.getElementById("btn-search").setAttribute("aria-expanded",String(searchOpen && !isSet));
@@ -3792,9 +4403,23 @@ function openLeaks() {
   openConnections();
 }
 async function refreshSub(btn) {
+  if (refreshSub.pending || last?.sub?.status==='loading') return;
+  refreshSub.pending = true;
   if (btn) btn.disabled = true;
-  try { await api("/api/refresh-sub", { body: {} }); } catch {}
-  setTimeout(() => tick(true), 1200);
+  try {
+    const result = await api("/api/refresh-sub", { body: {} });
+    if (result?.error) throw new Error(result.error);
+    if(last?.sub) last.sub={...last.sub,status:'loading'};
+    paintSubscription();
+    setTimeout(() => tick(true), 1200);
+  } catch (error) {
+    flashToast(tr("刷新账期失败：") + (error?.message || tr("读取失败")));
+  } finally {
+    refreshSub.pending = false;
+    const loading=last?.sub?.status==='loading';
+    if (btn) btn.disabled = loading;
+    for (const current of document.querySelectorAll('[data-refresh-sub]')) current.disabled = loading;
+  }
 }
 document.getElementById("quota").addEventListener("click", async (e) => {
   const ack = e.target.closest("[data-ack-new]");
@@ -3827,7 +4452,7 @@ document.getElementById("btn-leak").onclick = () => {
   leakOnly = !leakOnly;connectionRoute="";
   render(true);
 };
-document.getElementById("show-ignored").onchange = () => render(true);
+document.getElementById("show-ignored").onchange = () => {rememberView();render(true);};
 document.getElementById("main").addEventListener("click", (e) => {
   const sub = e.target.closest("[data-refresh-sub]");
   if (sub) {
@@ -3889,13 +4514,16 @@ document.addEventListener("click",e=>{
   if(b.hasAttribute('data-program-menu') || b.hasAttribute('data-site-menu')) {
     const rect=b.getBoundingClientRect();
     if(!programMenu.hidden && menuAnchor===b) return closeProgramMenu(true);
-    if(b.hasAttribute('data-site-menu')) openSiteMenu(b.dataset.siteMenu,b.dataset.siteSubdomains==='true',rect.right-210,rect.bottom+4,b);
+    if(b.hasAttribute('data-site-menu')) openSiteMenu(b.dataset.siteMenu,b.dataset.siteSubdomains==='true',rect.right-210,rect.bottom+4,b,b.dataset.siteProcess || '');
     else openProgramMenu(b.dataset.programMenu,rect.right-210,rect.bottom+4,b);
     return;
   }
   if(b.hasAttribute('data-home-dimension')) {return setLiveStyle('list',b.dataset.homeDimension);}
   if(b.hasAttribute('data-live-site')) {selectedSite=selectedSite===b.dataset.liveSite?'':b.dataset.liveSite;rememberView();render(true);return;}
   if(b.hasAttribute('data-site-connections')) {connMode='live';return gotoFilter('conns','',{process:b.dataset.siteProcess || '',site:b.dataset.siteConnections,subdomains:b.dataset.siteSubdomains==='true'});}
+  if(b.hasAttribute('data-search-dimension')) {chooseRankMode(b.dataset.searchDimension);document.getElementById('q').focus();return;}
+  if(b.hasAttribute('data-clear-search')) {document.getElementById('q').value='';rememberView();render(true);document.getElementById('q').focus();return;}
+  if(b.hasAttribute('data-clear-filters')) return clearResultFilters();
   if(b.hasAttribute('data-rank-sort')) {
     const key=b.dataset.rankSort;
     if(['proxy','direct','total'].includes(key)) {
@@ -3919,8 +4547,9 @@ document.addEventListener("click",e=>{
   if(b.hasAttribute("data-stats-process")) return gotoFilter("rank","",{process:b.dataset.statsProcess,period:'today',rankMode:'program',traffic:'all'});
   if(b.hasAttribute("data-live-style")) return setLiveStyle(b.dataset.liveStyle);
   if(b.hasAttribute("data-conn-mode")) {rememberView();connMode=b.dataset.connMode;leakOnly=false;connectionRoute="";history.pushState(viewState(),"",viewHash());render(true);tick(true);return;}
-  if(b.hasAttribute("data-clear-scope")) {processScope="";connectionSite="";document.getElementById("q").value="";rememberView();render(true);return;}
-  if(b.hasAttribute("data-back")) {if(history.length>2) history.back(); else gotoFilter("overview");}
+  if(b.hasAttribute("data-clear-scope")) return clearResultScope('program');
+  if(b.hasAttribute("data-clear-site")) return clearResultScope('site');
+  if(b.hasAttribute("data-back")) returnConnections();
 });
 (function bindChart() {
   window.addEventListener("resize", () => {
@@ -3928,7 +4557,6 @@ document.addEventListener("click",e=>{
     wellLayout();
   });
 })();
-document.getElementById("btn-update").onclick = doUpdate;
 (function bindDesk() {
   const params = new URLSearchParams(location.search);
   const host = window.chrome && chrome.webview;
@@ -3964,6 +4592,7 @@ document.getElementById("btn-update").onclick = doUpdate;
   });
 })();
 window.addEventListener("popstate",restoreView);
+window.addEventListener("pagehide",()=>{if(!history.state?.fmLanguageSwitch) rememberView();});
 const connectionDialog=document.getElementById('connection-dialog');
 let connectionFocus=null,connectionProcess='',connectionOpenSequence=0,connectionLoading=false,connectionFixedScope=null,connectionApplications=[];
 let scopedIPv6Catalog=null,scopedIPv6Busy=false,scopedIPv6Sequence=0,scopedIPv6Error='',scopedIPv6Reads=0;
@@ -4000,6 +4629,7 @@ function paintConnectionTargets(){
   scopedIPv6Controls();
 }
 async function openConnectionSettings(scope=null,trigger=document.activeElement,process=''){
+  if(scopedIPv6Busy)return;
   const opening=++connectionOpenSequence;
   connectionFocus=trigger;connectionProcess=process;connectionFixedScope=scope;connectionApplications=[];
   connectionLoading=true;scopedIPv6Catalog=null;scopedIPv6Error='';
@@ -4038,8 +4668,24 @@ function scopedIPv6Current(){
   const key=scopedIPv6ScopeKey(scope);
   return scopedIPv6Catalog?.entries?.find(e=>e.current && e.scope && scopedIPv6ScopeKey(e.scope)===key) || null;
 }
+function scopedIPv6Coverage(rule,target){
+  if(!rule || !target)return 0;
+  if(target.children){const hits=target.children.map(t=>scopedIPv6Coverage(rule,t));return hits.every(n=>n===2)?2:hits.some(Boolean)?1:0;}
+  if(rule.children){const hits=rule.children.map(r=>scopedIPv6Coverage(r,target));return rule.kind==='any'?Math.max(0,...hits):hits.every(n=>n===2)?2:hits.some(Boolean)?1:0;}
+  if(rule.kind!==target.kind)return 0;
+  const a=JSON.parse(scopedIPv6ScopeKey(rule)),b=JSON.parse(scopedIPv6ScopeKey(target));
+  if(a[0]==='invalid' || b[0]==='invalid')return 0;
+  if(a[1]===b[1])return rule.kind==='domain' && target.include_subdomains && !rule.include_subdomains?1:2;
+  if(rule.kind!=='domain')return 0;
+  if(rule.include_subdomains && b[1].endsWith('.'+a[1]))return 2;
+  return target.include_subdomains && a[1].endsWith('.'+b[1])?1:0;
+}
+function scopedIPv6Related(){
+  const target=connectionCapture(),selected=scopedIPv6Current();
+  return (scopedIPv6Catalog?.entries || []).filter(e=>e!==selected && e.current && scopedIPv6Coverage(e.scope,target));
+}
 function scopedIPv6Controls(){
-  const selected=scopedIPv6Current(),button=document.getElementById('scoped-ipv6-enable');
+  const selected=scopedIPv6Current(),related=scopedIPv6Related(),button=document.getElementById('scoped-ipv6-enable');
   // Only an in-flight operation locks the control. Invalid choices get an explicit explanation on click.
   button.disabled=scopedIPv6Busy || connectionLoading;
   button.setAttribute('aria-checked',String(!!selected));
@@ -4048,7 +4694,10 @@ function scopedIPv6Controls(){
   connectionEl('subdomains').disabled=scopedIPv6Busy;
   connectionEl('close').disabled=scopedIPv6Busy;
   const missing=connectionProcess?tr('未识别此应用的路径，请让它联网后重试。'):tr('请选择应用或输入网站。');
-  document.getElementById('scoped-ipv6-state').textContent=scopedIPv6Busy?tr('正在更新…'):scopedIPv6Error || (connectionLoading?tr('正在检查…'):selected?(selected.applied?tr('已开启'):tr('等待核实')):!connectionCapture()?missing:tr('未开启'));
+  document.getElementById('scoped-ipv6-state').textContent=scopedIPv6Busy?tr('正在更新…'):scopedIPv6Error || (connectionLoading?tr('正在检查…'):selected?(selected.applied?tr('已开启'):tr('等待核实')):!connectionCapture()?missing:related.length?related.some(e=>e.applied)?tr('本条未开启 · 其他规则仍在限制'):tr('本条未开启 · 相关规则待核实'):tr('未开启'));
+  const coverage=document.getElementById('scoped-ipv6-coverage');
+  coverage.hidden=!related.length;
+  coverage.innerHTML=related.map(e=>`<p class="sub">${escapeHtml(tr('相关规则：')+connectionLabel(e.scope))} · ${escapeHtml(!e.applied?tr('等待核实'):scopedIPv6Coverage(e.scope,connectionCapture())===2?tr('覆盖此对象'):tr('部分连接受限'))}</p>`).join('')+(related.length?tr(`<button type="button" onclick="document.getElementById('scoped-ipv6-saved').open=true;document.getElementById('scoped-ipv6-saved-title').focus()">查看相关规则</button>`):'');
   const refresh=document.getElementById('scoped-ipv6-refresh');
   refresh.disabled=scopedIPv6Busy || connectionLoading;
   refresh.hidden=!scopedIPv6Error && !(connectionProcess&&!connectionCapture()) && !scopedIPv6Catalog?.entries?.some(e=>e.current && e.state!=='enabled');
@@ -4072,11 +4721,21 @@ async function loadScopedIPv6(){
   finally{--scopedIPv6Reads;}
 }
 async function scopedIPv6Action(operation,id=null){
-  if(scopedIPv6Busy || connectionLoading)return;
+  if(scopedIPv6Busy || connectionLoading || !connectionDialog.open)return;
+  // An asynchronous capability retry belongs to the clicked target and dialog,
+  // never to whichever target happens to be open when the response arrives.
+  const opening=connectionOpenSequence,captured=connectionCapture();
+  const scope=captured?JSON.parse(JSON.stringify(captured)):null,scopeKey=scopedIPv6ScopeKey(scope);
   scopedIPv6Error='';
-  if(!scopedIPv6Catalog?.supported){await loadScopedIPv6();if(!scopedIPv6Catalog?.supported){scopedIPv6Error=scopedIPv6Catalog?.error || tr('暂时无法连接核心，请重试。');scopedIPv6Controls();return;}}
-  const scope=connectionCapture();
   if(operation==='enable' && !scope){scopedIPv6Error=connectionProcess?tr('未识别此应用的路径，请让它联网后重试。'):tr('请先选择应用或输入网站。');scopedIPv6Controls();(connectionEl('kind').value==='domain'?connectionEl('domain'):connectionEl('app')).focus();return;}
+  if(!scopedIPv6Catalog?.supported){
+    connectionLoading=true;scopedIPv6Controls();
+    try{await loadScopedIPv6();}
+    finally{if(opening===connectionOpenSequence){connectionLoading=false;scopedIPv6Controls();}}
+    if(opening!==connectionOpenSequence || !connectionDialog.open)return;
+    if(scopeKey!==scopedIPv6ScopeKey(connectionCapture())){scopedIPv6Error=tr('对象已更改，请重新确认操作。');scopedIPv6Controls();return;}
+    if(!scopedIPv6Catalog?.supported){scopedIPv6Error=scopedIPv6Catalog?.error || tr('暂时无法连接核心，请重试。');scopedIPv6Controls();return;}
+  }
   const body={operation,revision:scopedIPv6Catalog.revision};
   if(operation==='enable')body.scope=scope;
   if(operation==='disable')body.id=id;
@@ -4087,7 +4746,9 @@ async function scopedIPv6Action(operation,id=null){
 }
 document.getElementById('scoped-ipv6-enable').onclick=()=>{const current=scopedIPv6Current();return scopedIPv6Action(current?'disable':'enable',current?.id);};
 document.getElementById('scoped-ipv6-refresh').onclick=async()=>{
+  const opening=connectionOpenSequence;
   await loadScopedIPv6();
+  if(opening!==connectionOpenSequence || !connectionDialog.open)return;
   if(scopedIPv6Catalog?.entries?.some(e=>e.current && e.state!=='enabled'))await scopedIPv6Action('reconcile');
 };
 document.getElementById('scoped-ipv6-list').onclick=event=>{const b=event.target.closest('[data-scoped-ipv6-remove]');if(b)scopedIPv6Action('disable',b.dataset.scopedIpv6Remove);};
@@ -4178,7 +4839,7 @@ ruleDialog.addEventListener("change",()=>{if(ruleEditor && !ruleEditor.savedOnly
 for(const [id,op] of [["preview-btn","preview"],["save","save"],["export","export"],["delete","delete"]]) ruleEl(id).onclick=()=>ruleOperation(op);
 document.addEventListener("click",e=>{const b=e.target.closest('[data-rule-edit]');if(b) openRuleEditor(b.dataset.ruleEdit);});
 const draftLibrary=document.getElementById('draft-library');
-for(const dialog of [connectionDialog,ruleDialog,draftLibrary,document.getElementById('ipv6-dialog')]) dialog.addEventListener('keydown',e=>{
+for(const dialog of [connectionDialog,ruleDialog,draftLibrary,document.getElementById('ipv6-dialog'),document.getElementById('update-dialog')]) dialog.addEventListener('keydown',e=>{
   if(e.key!=='Tab') return;
   const focusable=[...dialog.querySelectorAll('button,input,select,summary,[tabindex="0"]')].filter(n=>!n.disabled && n.getClientRects().length);
   const first=focusable[0],last=focusable.at(-1);
@@ -4413,10 +5074,10 @@ function ipv6FocusVerify(){if(ipv6Dialog.open && ipv6Context?.resume_id){ipv6Pol
 window.addEventListener('focus',ipv6FocusVerify);document.addEventListener('visibilitychange',ipv6FocusVerify);
 
 let menuProgram='',menuPath='',menuSite='',menuSiteSubdomains=false,menuAnchor=null;
-function openSiteMenu(site,subdomains,x,y,anchor) {
-  menuSite=site;menuSiteSubdomains=subdomains;menuProgram='';menuPath='';menuAnchor=anchor;anchor.setAttribute('aria-expanded','true');
+function openSiteMenu(site,subdomains,x,y,anchor,process='') {
+  menuSite=site;menuSiteSubdomains=subdomains;menuProgram=process;menuPath='';menuAnchor=anchor;anchor.setAttribute('aria-expanded','true');
   programMenu.setAttribute('aria-label',tr('网站操作'));
-  programMenu.innerHTML=tr`<button role="menuitem" data-menu-action="site-connections">查看当前连接</button>${siteType(site)===tr('域名')?tr('<button role="menuitem" data-menu-action="site-settings">连接设置</button>'):''}<button role="menuitem" data-menu-action="site-copy">复制网站地址</button>`;
+  programMenu.innerHTML=tr`<button role="menuitem" data-menu-action="site-connections">查看当前连接</button>${siteType(site)===tr('域名')?tr('<button role="menuitem" data-menu-action="site-settings">IPv6 屏蔽</button>'):''}<button role="menuitem" data-menu-action="site-copy">复制网站地址</button>`;
   programMenu.hidden=false;
   programMenu.style.left=Math.max(8,Math.min(x,innerWidth-programMenu.offsetWidth-8))+'px';
   programMenu.style.top=Math.max(8,Math.min(y,innerHeight-programMenu.offsetHeight-8))+'px';
@@ -4431,14 +5092,14 @@ function closeProgramMenu(restore=false) {
   menuAnchor?.setAttribute("aria-expanded","false");
   if(restore && menuAnchor?.isConnected) menuAnchor.focus({preventScroll:true});
 }
-function openProgramMenu(process,x,y,anchor) {
+function openProgramMenu(process,x,y,anchor,site=anchor?.dataset.programSite || '',subdomains=anchor?.dataset.siteSubdomains==='true') {
   if(connectionDialog.open || ruleDialog.open || draftLibrary.open || ipv6Dialog.open) return;
-  menuProgram=process;menuSite="";menuAnchor=anchor;anchor?.setAttribute("aria-expanded","true");
+  menuProgram=process;menuSite=site;menuSiteSubdomains=subdomains;menuAnchor=anchor;anchor?.setAttribute("aria-expanded","true");
   programMenu.setAttribute("aria-label",tr("程序操作"));
   const identities=processIdentities(process), verified=identities.filter(id=>id.path && id.flows.every(f=>f.identity_verified && !f.identity_conflict));
   menuPath=identities.length===1 && verified.length===1 ? verified[0].path : '';
   const disabled=menuPath?'':'disabled',reason=menuPath?'':identities.length>1?tr('存在多个身份路径，请先查看详情'):tr('尚无本机验证的完整路径');
-  programMenu.innerHTML=tr`${filter==='conns' && processScope===process?'':tr('<button type="button" role="menuitem" data-menu-action="connections">查看连接</button>')}${filter==='rank' && processScope===process?'':tr('<button type="button" role="menuitem" data-menu-action="rank">查看用量</button>')}<button type="button" role="menuitem" data-menu-action="connection">连接设置</button><button type="button" role="menuitem" data-menu-action="copy" ${disabled} title="${reason}">复制完整路径</button><button type="button" role="menuitem" data-menu-action="folder" ${disabled} title="${reason}">打开所在文件夹</button><button type="button" role="menuitem" data-menu-action="pin">${isPinned(process)?tr('取消置顶'):tr('置顶程序')}</button><button type="button" role="menuitem" data-menu-action="ignore">${isIgnored(process)?tr('取消忽略'):tr('忽略程序')}</button>`;
+  programMenu.innerHTML=tr`${filter==='conns' && processScope===process?'':tr('<button type="button" role="menuitem" data-menu-action="connections">查看连接</button>')}${filter==='rank' && processScope===process?'':tr('<button type="button" role="menuitem" data-menu-action="rank">查看用量</button>')}<button type="button" role="menuitem" data-menu-action="connection">IPv6 屏蔽</button><button type="button" role="menuitem" data-menu-action="copy" ${disabled} title="${reason}">复制完整路径</button><button type="button" role="menuitem" data-menu-action="folder" ${disabled} title="${reason}">打开所在文件夹</button><button type="button" role="menuitem" data-menu-action="pin">${isPinned(process)?tr('取消置顶'):tr('置顶程序')}</button><button type="button" role="menuitem" data-menu-action="ignore">${isIgnored(process)?tr('取消忽略'):tr('忽略程序')}</button>`;
   programMenu.hidden=false;
   programMenu.style.left=Math.max(8,Math.min(x,innerWidth-programMenu.offsetWidth-8))+'px';
   programMenu.style.top=Math.max(8,Math.min(y,innerHeight-programMenu.offsetHeight-8))+'px';
@@ -4465,7 +5126,7 @@ programMenu.addEventListener('click',async event=>{
   const action=event.target.closest('[data-menu-action]')?.dataset.menuAction;
   if(!action) return;
   const process=menuProgram,path=menuPath;closeProgramMenu(true);
-  if(action==='site-connections') {connMode='live';return gotoFilter('conns','',{site:menuSite,subdomains:menuSiteSubdomains});}
+  if(action==='site-connections' || (action==='connections' && menuSite)) {connMode='live';return gotoFilter('conns','',{process,site:menuSite,subdomains:menuSiteSubdomains});}
   if(action==='site-settings') return openConnectionSettings({kind:'domain',value:menuSite,include_subdomains:menuSiteSubdomains},menuAnchor);
   if(action==='site-copy') {try {await navigator.clipboard.writeText(menuSite);flashToast(tr('网站地址已复制'));} catch {flashToast(tr('复制失败'));} return;}
   if(action==='pin') return savePref(process,{pinned:!isPinned(process)});
@@ -4490,6 +5151,7 @@ function closeViewMenu(focus=false) {
 function toggleSearch(on) {
   searchOpen=on;
   if(!on) document.getElementById("q").value="";
+  rememberView();
   render(true);
   (on ? document.getElementById("q") : document.getElementById("btn-search")).focus();
 }
@@ -4497,7 +5159,7 @@ document.getElementById("btn-search").onclick=()=>toggleSearch(!searchOpen);
 document.addEventListener("click",e=>{if(!document.getElementById("view-menu").contains(e.target)) closeViewMenu();});
 window.addEventListener("keydown",e=>{
   if(e.defaultPrevented) return;
-  if(connectionDialog.open || ruleDialog.open || draftLibrary.open || ipv6Dialog.open || !programMenu.hidden) return;
+  if(connectionDialog.open || ruleDialog.open || draftLibrary.open || ipv6Dialog.open || document.getElementById('update-dialog')?.open || !programMenu.hidden) return;
   if(e.key === "Escape" && document.getElementById("view-menu").open) {e.preventDefault();closeViewMenu(true);return;}
   const tag=e.target?.tagName || "";
   if(e.key === "Escape" && searchOpen) {e.preventDefault();toggleSearch(false);return;}
@@ -4506,13 +5168,14 @@ window.addEventListener("keydown",e=>{
   if(e.key === "Escape" && well.sel) {const selected=well.sel;well.sel="";rememberView();render(true);[...document.querySelectorAll('[data-program]')].find(b=>b.dataset.program===selected)?.focus();return;}
   if(e.key === "/" && filter!=="settings") {e.preventDefault();toggleSearch(true);return;}
   const map={"1":"overview","2":"rank","3":"conns","6":"settings"};
-  if(map[e.key]) {if(e.key==="3") openConnections();else gotoFilter(map[e.key],"",e.key==="1"?{style:"list"}:e.key==="2"?{period:"today",rankMode:"program",traffic:"proxy"}:{});}
+  if(map[e.key]) {if(e.key==="3") openConnections();else if(e.key==='1' || e.key==='2') gotoPrimaryView(map[e.key]);else gotoFilter(map[e.key]);}
 });
 (async function boot() {
   const restoreLanguageView=!!history.state?.fmLanguageSwitch;
+  const restoreSavedView=!!history.state?.fm;
   applyHash();
   try {
-    settingsCache = await api("/api/settings");
+    await loadSettings();
     homeScope=settingsCache.home_scope==='proxy'?'proxy':'all';
     if (!location.hash) {
       filter = "overview";
@@ -4525,7 +5188,7 @@ window.addEventListener("keydown",e=>{
   [...pbox.children].forEach(x => x.classList.toggle("on", x.textContent === (PERIODS.find(p => p[0] === period) || [])[1]));
   const bv = document.getElementById("brand-ver");
   if (bv && settingsCache && settingsCache.version) bv.textContent = "v" + settingsCache.version;
-  if(restoreLanguageView) {
+  if(restoreSavedView || restoreLanguageView) {
     restoreView();
     history.replaceState({...history.state,fmLanguageSwitch:false},"",location.hash);
   } else {rememberView();render(true);tick(true);}

@@ -398,9 +398,10 @@ async def check(output: Path) -> None:
                 await page.locator("#btn-export").click()
             artifact=await download.value
             await artifact.save_as(str(output/"statistics.csv"))
-            assert artifact.suggested_filename == "FlashMonitor-program-all-all.csv"
+            assert artifact.suggested_filename.startswith("FlashMonitor-program-all-all-") and artifact.suggested_filename.endswith(".csv")
             exported=(output/"statistics.csv").read_text(encoding="utf-8-sig")
-            assert '"Edge","100000","30000","0","0","130000"' in exported
+            assert '"Edge","msedge","100000","30000","0","0","130000"' in exported
+            assert '"代理（字节）"' in exported and '"进程名"' in exported
             await page.screenshot(path=str(output/"03-statistics.png"))
             verified("program/site/node dimensions, direct filter, period totals, lifetime-only detail and current export")
 

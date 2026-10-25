@@ -66,5 +66,14 @@ const run=code=>vm.runInContext(code,context);
   run("setLiveStyle('list','program')");assert.equal(context.liveStyle,'list');assert.equal(context.homeDimension,'program');assert.equal(q.value,'browser');
   context.location.hash='#overview?dimension=site&style=balls';run('applyHash()');assert.equal(context.liveStyle,'balls');assert.equal(context.homeDimension,'site');
   context.location.hash='#overview';run('applyHash()');assert.equal(context.liveStyle,'list');
+  // The close control describes the confirmed action, including after rollback.
+  const close={setAttribute(key,value){this[key]=value;}};
+  context.document.querySelector=()=>close;context.setHtml=()=>{};
+  context.paintRefresh=()=>{};context.healthState=()=>({cls:'ok'});context.paintSetup=()=>{};context.paintNotices=()=>{};
+  context.filter='overview';context.settingsCache={close_to_tray:true};
+  vm.runInContext(source('paintChrome'),context);run('paintChrome()');
+  assert.equal(close.title,translate('隐藏到托盘，继续采集'));
+  context.settingsCache.close_to_tray=false;run('paintChrome()');
+  assert.equal(close['aria-label'],translate('退出 Flash Monitor'));
   console.log('PASS UI controls: stable icons, safe scopes, batched disconnect, retries, view navigation');
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import urlparse,parse_qs
 
 from check_gpt_network import GPTFixture
+from connection_test_helpers import open_connection
 from playwright.async_api import async_playwright
 
 
@@ -99,7 +100,7 @@ async def check(out):
 
             await page.locator('#q').fill('');f.refresh_delay=1.5
             await page.locator('#btn-refresh').click()
-            await page.locator('#view-menu summary').click();await page.locator('[data-connection-entry]').click()
+            await open_connection(page)
             await page.wait_for_function('!connectionLoading')
             await page.locator('#connection-kind').select_option('domain')
             await page.locator('#connection-domain').fill('unsaved.example')

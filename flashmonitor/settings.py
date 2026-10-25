@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import re
 import threading
 from copy import deepcopy
 from pathlib import Path
@@ -64,6 +66,10 @@ PERIODS = {"1h", "today", "7d", "30d", "all"}
 NOTIFY_KEYS = ("notify_new_app", "notify_leak", "notify_quota", "notify_hide", "show_new_banner")
 MAX_NAMES = 80
 MAX_QUOTA_MB = 10_000_000
+URL_ERRORS = {
+    "clash_api": "外部控制器地址无效，请填写完整的 http:// 或 https:// 地址，并检查主机名和端口。",
+    "sub_url": "订阅地址无效，请填写完整的 http:// 或 https:// 地址，并检查主机名和端口（少于 2000 字符）；清除订阅请使用清除按钮。",
+}
 
 
 def as_name_list(value: Any) -> list[str]:
@@ -96,6 +102,40 @@ def url_hint(url: str) -> str:
     if ":" in host:
         host = f"[{host}]"
     return f"{parts.scheme}://{host}"
+
+
+def _validated_url(value: Any, *, subscription: bool) -> str:
+    """Validate before changing settings; never include a possibly secret URL in errors."""
+    if not isinstance(value, str):
+        raise ValueError("URL must be text")
+    url = value.strip()
+    if subscription and not url:
+        return ""
+    if not url or (subscription and len(url) >= 2000):
+        raise ValueError("Invalid URL length")
+    if any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in url) or "\\" in url:
+        raise ValueError("Invalid URL characters")
+    parts = urlsplit(url)
+    host = parts.hostname
+    port = parts.port  # Raises for a malformed or out-of-range port.
+    if parts.scheme not in ("http", "https") or not host:
+        raise ValueError("HTTP(S) URL with host required")
+    if parts.username is not None or parts.password is not None or "#" in url:
+        raise ValueError("Unsupported credentials or fragment")
+    if parts.netloc.endswith(":") or port == 0 or (not subscription and "?" in url):
+        raise ValueError("Invalid controller address or port")
+    if ":" in host:
+        ipaddress.IPv6Address(host)
+    elif re.fullmatch(r"[0-9.]+", host) and "." in host:
+        ipaddress.IPv4Address(host)
+    else:
+        ascii_host = host.encode("idna").decode("ascii").rstrip(".")
+        if len(ascii_host) > 253 or not all(
+            re.fullmatch(r"[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?", label)
+            for label in ascii_host.split(".")
+        ):
+            raise ValueError("Invalid hostname")
+    return url if subscription else url.rstrip("/")
 
 
 def _clamp_int(value: Any, lo: int, hi: int, default: int) -> int:
@@ -168,7 +208,10 @@ class AppSettings:
         tmp = self.path.with_suffix(".json.tmp")
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            # Autostart lives in the OS, not this file. Keeping a second copy
+            # would require another disk write after changing the startup entry.
+            stored = {key: value for key, value in payload.items() if key != "autostart"}
+            tmp.write_text(json.dumps(stored, ensure_ascii=False, indent=2), encoding="utf-8")
             tmp.replace(self.path)
             return True
         except OSError as exc:
@@ -176,7 +219,7 @@ class AppSettings:
             self.error = f"设置没存上：{exc}"
             return False
 
-    def apply(self, patch: dict[str, Any]) -> bool | None:
+    def apply(self, patch: dict[str, Any]) -> bool:
         with self._lock:
             if "connection_draft" in patch:
                 if set(patch) != {"connection_draft"}:
@@ -197,15 +240,23 @@ class AppSettings:
                 return True
             return self._apply(patch)
 
-    def _apply(self, patch: dict[str, Any]) -> None:
-        d = self.data
+    def _apply(self, patch: dict[str, Any]) -> bool:
+        # A bad URL rejects the entire patch, including unrelated settings and hooks.
+        urls: dict[str, str] = {}
+        for key in URL_ERRORS:
+            if key in patch:
+                try:
+                    urls[key] = _validated_url(patch[key], subscription=key == "sub_url")
+                except (ValueError, UnicodeError):
+                    self.error = URL_ERRORS[key]
+                    return False
+        # Do not expose uncommitted settings to the collector or later saves.
+        d = deepcopy(self.data)
         for key in ("open_browser", "start_minimized", "close_to_tray", "show_airport", *NOTIFY_KEYS):
             if key in patch:
                 d[key] = bool(patch[key])
         if "clash_api" in patch:
-            url = str(patch["clash_api"] or "").strip().rstrip("/")
-            if url.startswith("http://") or url.startswith("https://"):
-                d["clash_api"] = url
+            d["clash_api"] = urls["clash_api"]
         if "retention_days" in patch:
             d["retention_days"] = _clamp_int(patch["retention_days"], 7, 365, 40)
         if "clash_secret" in patch:
@@ -214,9 +265,7 @@ class AppSettings:
             if key in patch:
                 d[key] = _clamp_int(patch[key], 0, MAX_QUOTA_MB, 0)
         if "sub_url" in patch:
-            url = str(patch.get("sub_url") or "").strip()
-            ok = url.startswith(("http://", "https://")) and len(url) < 2000
-            d["sub_url"] = url if ok else ""
+            d["sub_url"] = urls["sub_url"]
         if "last_filter" in patch:
             val = str(patch.get("last_filter") or "overview")
             if val in FILTERS:
@@ -246,19 +295,26 @@ class AppSettings:
                 if on:
                     d["ignored"] = _without(d.get("ignored"), proc)
         self.error = ""
+        if not self._write({key: d.get(key, value) for key, value in DEFAULT_SETTINGS.items()}):
+            return False
+        # Keep existing references valid, and let hooks read only durable values.
+        self.data.update(d)
         try:
             if "autostart" in patch:
                 self._set_autostart(bool(patch["autostart"]))
             elif self._autostart_enabled() and ("start_minimized" in patch or "open_browser" in patch):
                 self._set_autostart(True)
         except RuntimeError as exc:
-            self.error = str(exc)
-        d["autostart"] = bool(self._autostart_enabled())
-        self.save()
+            if set(patch) - {"autostart"}:
+                self.error = f"其他设置已保存，开机启动项未更新：{exc}"
+            else:
+                self.error = str(exc)
+        self.data["autostart"] = bool(self._autostart_enabled())
         try:
             self._on_saved(set(patch))
         except Exception as exc:  # noqa: BLE001 - 保存后的附带动作失败不影响设置本身
             fmlog.log_exception("设置保存后的处理", exc)
+        return not self.error
 
     def public(self) -> dict[str, Any]:
         with self._lock:

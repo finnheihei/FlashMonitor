@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import threading
@@ -129,38 +130,50 @@ class SubInfo:
         self._spawn = spawn or (lambda fn: threading.Thread(target=fn, daemon=True, name="subinfo").start())
         self._clock = clock
         self._lock = threading.Lock()
-        self._ts = 0.0
+        self._ts: float | None = None
         self._data: dict[str, Any] | None = None
         self._fetching = False
+        self._key = ""
+        self._generation = 0
+        self._status = "loading"
+        self._updated_at = 0.0
 
     def public(self) -> dict[str, Any] | None:
         with self._lock:
-            return dict(self._data) if isinstance(self._data, dict) else None
+            if not self._key:
+                return None
+            return {**(self._data or {}), "status": self._status, "updated_at": self._updated_at}
+
+    def _selection(self) -> dict[str, Any]:
+        profile = flclash_current_profile(self.flclash_dir) or {}
+        profile_url = str(profile.get("url") or "").strip()
+        url = str(self._sub_url() or "").strip() or profile_url
+        same_profile = bool(url and url == profile_url)
+        return {"url": url, "key": hashlib.sha256(url.encode()).hexdigest() if url else "",
+                "label": str(profile.get("label") or "") if same_profile else "",
+                "cached": profile.get("cached") if same_profile else None}
 
     def _load_disk(self) -> dict[str, Any] | None:
-        if not self.cache_file.is_file():
-            return None
         try:
             raw = json.loads(self.cache_file.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
             return None
-        if not isinstance(raw, dict):
+        # Legacy caches have no safe source attribution.
+        if not isinstance(raw, dict) or raw.get("source_key") != self._key:
             return None
         info = _userinfo_from(raw)
         if not info:
             return None
-        return public_info(info, label=str(raw.get("label") or ""), source=str(raw.get("source") or "cache"))
+        try:
+            updated = float(raw.get("ts") or 0)
+        except (ValueError, TypeError):
+            updated = 0.0
+        self._updated_at = updated if 0 < updated <= self._clock() else 0.0
+        return public_info(info, label=str(raw.get("label") or ""), source="cache")
 
     def _save_disk(self, data: Mapping[str, Any]) -> None:
-        payload = {
-            "label": data.get("label") or "",
-            "upload": int(data.get("upload") or 0),
-            "download": int(data.get("download") or 0),
-            "total": int(data.get("total") or 0),
-            "expire": int(data.get("expire") or 0),
-            "source": data.get("source") or "",
-            "ts": int(self._clock()),
-        }
+        payload = {key: data.get(key) for key in ("label", "upload", "download", "total", "expire")}
+        payload.update(ts=self._updated_at, source_key=self._key)
         try:
             self.cache_file.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.cache_file.with_suffix(".json.tmp")
@@ -169,47 +182,79 @@ class SubInfo:
         except OSError:
             pass
 
-    def refresh(self) -> dict[str, Any] | None:
-        profile = flclash_current_profile(self.flclash_dir)
-        label = str((profile or {}).get("label") or "")
-        cached = (profile or {}).get("cached") if profile else None
-        url = str(self._sub_url() or "").strip() or str((profile or {}).get("url") or "")
-        live = self._fetch(url) if url else None
-        info = live or cached
-        if not info:
-            return None
-        source = "live" if live else "cache"
-        data: dict[str, Any] | None = public_info(info, label=label, source=source)
-        if source != "live" and int(data.get("used") or 0) < MIN_CACHED_USED:
-            data = None
-        with self._lock:
-            self._ts = self._clock()
-            self._data = data
-        if data:
-            self._save_disk(data)
-        return data
-
-    def _refresh_guarded(self) -> None:
-        # 0.8.0 里刷新抛异常时"正在刷新"一直不复位，之后就再也不刷新机场账期
+    def _refresh_guarded(self, selection: dict[str, Any], generation: int) -> None:
         try:
-            self.refresh()
+            try:
+                live = self._fetch(selection["url"])
+            except Exception as exc:  # noqa: BLE001
+                fmlog.log_exception("刷新机场账期", exc)
+                live = None
+            # A changed source invalidates an in-flight result even before the next poll.
+            if self._selection()["key"] != selection["key"]:
+                self.schedule(force=True)
+                return
+            with self._lock:
+                if generation != self._generation:
+                    return
+                self._ts = self._clock()  # Failures also observe the retry interval.
+                if live:
+                    self._data = public_info(live, label=selection["label"], source="live")
+                    self._updated_at = self._clock()
+                    self._status = "ready"
+                else:
+                    cached = selection["cached"]
+                    if self._data is None and cached:
+                        candidate = public_info(cached, label=selection["label"], source="cache")
+                        if candidate["used"] >= MIN_CACHED_USED:
+                            self._data = candidate
+                    if self._data:
+                        self._data["source"] = "cache"
+                    self._status = "error"
+                if self._data:
+                    self._save_disk(self._data)
         except Exception as exc:  # noqa: BLE001
             fmlog.log_exception("刷新机场账期", exc)
+            with self._lock:
+                if generation == self._generation:
+                    self._status = "error"
+                    self._ts = self._clock()
         finally:
             with self._lock:
                 self._fetching = False
+                changed = generation != self._generation and bool(self._key)
+            if changed:
+                self.schedule(force=True)
 
     def schedule(self, *, force: bool = False) -> None:
-        """需要时在后台刷新（5 分钟一次；force 立即刷新）。第一次先读磁盘缓存。"""
+        """Refresh at most every five minutes, or explicitly retry; cache is source-bound."""
+        selection = self._selection()
         now = self._clock()
         with self._lock:
-            if self._data is None:
-                disk = self._load_disk()
-                if disk:
-                    self._data = disk
-                    self._ts = now
-            fresh = self._data is not None and now - self._ts < TTL
+            if selection["key"] != self._key:
+                self._key = selection["key"]
+                self._generation += 1
+                self._data = None
+                self._ts = None
+                self._updated_at = 0.0
+                self._status = "loading"
+                if self._key:
+                    self._data = self._load_disk()
+                    if self._data:
+                        self._status = "cached"
+                        self._ts = self._updated_at or None
+            if not self._key:
+                return
+            fresh = self._ts is not None and 0 <= now - self._ts < TTL
             if (fresh and not force) or self._fetching:
                 return
             self._fetching = True
-        self._spawn(self._refresh_guarded)
+            self._status = "loading"
+            generation = self._generation
+        try:
+            self._spawn(lambda: self._refresh_guarded(selection, generation))
+        except Exception:  # A failed thread start must not leave the refresh stuck.
+            with self._lock:
+                self._fetching = False
+                if generation == self._generation:
+                    self._status = "error"
+                    self._ts = now

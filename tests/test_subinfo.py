@@ -81,7 +81,8 @@ class SubInfoTest(unittest.TestCase):
         self.live = None
         s = self.make(fl)
         s.schedule(force=True)
-        self.assertIsNone(s.public())
+        self.assertEqual(s.public()["status"], "error")
+        self.assertNotIn("used", s.public())
 
     def test_failed_refresh_does_not_get_stuck(self) -> None:
         self.url = "https://sub.example/me"
@@ -93,6 +94,113 @@ class SubInfoTest(unittest.TestCase):
         self.live = {"upload": 1, "download": 2, "total": 3, "expire": 0}
         s.schedule(force=True)
         self.assertEqual(s.public()["total"], 3)
+
+    def test_first_failure_and_retry_backoff(self):
+        self.url = "https://sub.example/a"
+        self.live = None
+        s = self.make()
+        s.schedule()
+        self.assertEqual(s.public(), {"status": "error", "updated_at": 0})
+        s.schedule()
+        self.assertEqual(len(self.fetched), 1)
+        self.now[0] += 301
+        s.schedule()
+        self.assertEqual(len(self.fetched), 2)
+        s.schedule(force=True)
+        self.assertEqual(len(self.fetched), 3)
+
+    def test_same_source_failure_retains_timestamp_and_marks_cache(self):
+        self.url = "https://sub.example/a"
+        s = self.make()
+        s.schedule()
+        timestamp = s.public()["updated_at"]
+        self.now[0] += 301
+        self.live = None
+        s.schedule()
+        pub = s.public()
+        self.assertEqual((pub["used"], pub["status"], pub["source"]), (10*GB, "error", "cache"))
+        self.assertEqual(pub["updated_at"], timestamp)
+        restored = self.make()
+        restored.schedule()
+        self.assertEqual(restored.public()["updated_at"], timestamp)
+        self.assertEqual(restored.public()["status"], "error", "old disk data is not made fresh by restarting")
+
+    def test_changed_source_clears_old_balance_before_fetch(self):
+        self.url = "https://sub.example/a"
+        s = self.make()
+        s.schedule()
+        jobs = []
+        s._spawn = jobs.append
+        self.url = "https://sub.example/b"
+        s.schedule()
+        self.assertEqual(s.public(), {"status": "loading", "updated_at": 0})
+        self.live = None
+        jobs.pop()()
+        self.assertEqual(s.public(), {"status": "error", "updated_at": 0})
+        restored = self.make()
+        restored.schedule()
+        self.assertNotIn("total", restored.public())
+        self.url = ""
+        s.schedule()
+        self.assertIsNone(s.public())
+
+    def test_manual_url_never_uses_other_flclash_profile(self):
+        fl = make_flclash(self.dir / "fl", info={"upload": 2*GB, "download": 3*GB, "total": 50*GB})
+        self.url = "https://different.example/private"
+        self.live = None
+        s = self.make(fl)
+        s.schedule()
+        self.assertNotIn("used", s.public())
+        self.assertNotIn("label", s.public())
+
+    def test_legacy_cache_is_not_attributed_to_current_source(self):
+        (self.dir / "subinfo.json").write_text(json.dumps({"upload": GB, "total": 100*GB}), encoding="utf-8")
+        self.url = "https://sub.example/a"
+        self.live = None
+        s = self.make()
+        s.schedule()
+        self.assertNotIn("used", s.public())
+
+    def test_inflight_source_switch_discards_old_result_and_fetches_new(self):
+        self.url = "https://sub.example/a"
+        jobs = []
+        s = self.make()
+        s._spawn = jobs.append
+        def fetch(url):
+            self.fetched.append(url)
+            if url.endswith('/a'):
+                self.url = "https://sub.example/b"
+                s.schedule(force=True)
+                self.assertNotIn("used", s.public())
+                return self.live
+            return {"upload": 0, "download": GB, "total": 20*GB}
+        s._fetch = fetch
+        s.schedule()
+        jobs.pop(0)()
+        self.assertNotIn("used", s.public())
+        self.assertFalse(s.cache_file.exists(), "discarded requests must not poison disk cache")
+        self.assertEqual(len(jobs), 1)
+        jobs.pop(0)()
+        self.assertEqual(s.public()["total"], 20*GB)
+        self.assertEqual(s.public()["status"], "ready")
+        raw = s.cache_file.read_text(encoding="utf-8")
+        self.assertNotIn(self.url, raw)
+        self.assertNotIn("source_key", s.public())
+
+    def test_unconfigured_does_not_fetch_and_spawn_failure_can_retry(self):
+        s = self.make()
+        s.schedule()
+        self.assertIsNone(s.public())
+        self.assertEqual(self.fetched, [])
+        self.url = "https://sub.example/a"
+        def fail_spawn(fn):
+            raise RuntimeError("no thread")
+        s._spawn = fail_spawn
+        s.schedule()
+        self.assertEqual(s.public()["status"], "error")
+        s._spawn = lambda fn: fn()
+        s.schedule(force=True)
+        self.assertEqual(s.public()["status"], "ready")
 
     def test_profile_reader_edge_cases(self) -> None:
         self.assertIsNone(flclash_current_profile(self.dir / "missing"))

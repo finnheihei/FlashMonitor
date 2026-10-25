@@ -470,7 +470,7 @@ class FlashDesktop:
         placement_file: Path,
         fallback: Callable[[], Any] | None = None,
         should_hide: Callable[[], bool] | None = None,
-        on_first_hide: Callable[[], None] | None = None,
+        on_first_hide: Callable[[], bool] | None = None,
         on_quit: Callable[[], bool | None] | None = None,
         window_class: str = "FlashMonitorWnd",
     ) -> None:
@@ -974,10 +974,9 @@ class FlashDesktop:
                 except Exception:
                     pass
         if not self._first_hide:
-            self._first_hide = True
             if self.on_first_hide:
                 try:
-                    self.on_first_hide()
+                    self._first_hide = self.on_first_hide() is True
                 except Exception:
                     pass
 
@@ -1102,7 +1101,7 @@ class FlashDesktop:
                 if not alive:
                     hide = True if self.should_hide is None else bool(self.should_hide())
                     if hide:
-                        if not self._first_hide:
+                        if not self._hidden:
                             self._hide_window()
                     else:
                         self._quit()

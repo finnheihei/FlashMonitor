@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import unittest
+from datetime import date
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
-from flashmonitor.tray import TrayPulse, process_label, tray_tip_text
+from flashmonitor.tray import WinTray, TrayPulse, process_label, tray_tip_text
 
 
 class FakeTray:
@@ -25,7 +28,18 @@ class TrayTest(unittest.TestCase):
         self.live = {"down": 2 * 1024 * 1024, "up": 512, "eaters": []}
         self.alerts: list[dict] = []
         self.settings = {"notify_new_app": True, "notify_leak": True, "notify_quota": True}
-        self.pulse = TrayPulse(self.tray, live_view=lambda: self.live, alerts=lambda: self.alerts, settings=lambda: self.settings)
+        self.today = date(2026, 10, 23)
+        self.pulse = TrayPulse(self.tray, live_view=lambda: self.live, alerts=lambda: self.alerts, settings=lambda: self.settings, local_day=lambda: self.today)
+
+    def test_balloon_reports_shell_acceptance(self):
+        tray=WinTray.__new__(WinTray)
+        tray.hwnd=0;tray._nid=None
+        self.assertFalse(tray.balloon("title","text"))
+        tray.hwnd=1;tray._nid=SimpleNamespace()
+        notify=Mock(side_effect=[0,1])
+        with patch("flashmonitor.tray.ctypes.byref",side_effect=lambda value:value), patch("flashmonitor.tray.ctypes.windll",SimpleNamespace(shell32=SimpleNamespace(Shell_NotifyIconW=notify)),create=True):
+            self.assertFalse(tray.balloon("title","text"))
+            self.assertTrue(tray.balloon("title","text"))
 
     def test_tip_text(self) -> None:
         self.assertEqual(tray_tip_text(self.live), "↓ 2.0 MB/s  ↑ 512 B/s")
@@ -47,8 +61,8 @@ class TrayTest(unittest.TestCase):
         self.alerts = [
             {"kind": "new", "process": "steam"},
             {"kind": "leak", "count": 3},
-            {"kind": "total", "used": 1, "limit": 1},
-            {"kind": "program", "process": "chrome", "used": 1, "limit": 1},
+            {"kind": "total", "used": 1, "limit": 1, "stats_day": self.today.isoformat()},
+            {"kind": "program", "process": "chrome", "used": 1, "limit": 1, "stats_day": self.today.isoformat()},
         ]
         for _ in range(6):
             self.pulse.once()
@@ -70,6 +84,38 @@ class TrayTest(unittest.TestCase):
         self.pulse.once()
         self.assertEqual([b[0] for b in self.tray.balloons], ["漏网", "漏网"])
 
+    def test_daily_quota_rearms_on_next_local_day(self) -> None:
+        self.alerts = [{"kind": "total", "stats_day": self.today.isoformat()},
+                       {"kind": "program", "process": "chrome", "stats_day": self.today.isoformat()}]
+        for _ in range(4):
+            self.pulse.once()
+        self.assertEqual(len(self.tray.balloons), 2)
+        self.today = date(2026, 10, 24)
+        self.alerts = []
+        self.pulse.once()
+        self.alerts = [{"kind": "total", "stats_day": self.today.isoformat()},
+                       {"kind": "program", "process": "chrome", "stats_day": self.today.isoformat()}]
+        for _ in range(4):
+            self.pulse.once()
+        self.assertEqual(len(self.tray.balloons), 4)
+
+    def test_quota_rearms_even_without_a_midnight_pulse(self) -> None:
+        self.alerts = [{"kind": "total", "stats_day": self.today.isoformat()}]
+        self.pulse.once()
+        self.today = date(2026, 10, 25)
+        self.alerts = [{"kind": "total", "stats_day": self.today.isoformat()}]
+        self.pulse.once()
+        self.pulse.once()
+        self.assertEqual(len(self.tray.balloons), 2)
+
+    def test_process_named_total_has_separate_quota_notice(self) -> None:
+        self.alerts = [{"kind": "total", "stats_day": self.today.isoformat()},
+                       {"kind": "program", "process": "total", "stats_day": self.today.isoformat()}]
+        for _ in range(3):
+            self.pulse.once()
+        self.assertEqual(len(self.tray.balloons), 2)
+        self.assertIn("total", self.tray.balloons[1][1])
+
     def test_settings_switch_balloons_off(self) -> None:
         self.settings = {"notify_new_app": False, "notify_leak": False, "notify_quota": False}
         self.alerts = [{"kind": "new", "process": "x"}, {"kind": "leak", "count": 1}, {"kind": "total"}]
@@ -78,6 +124,39 @@ class TrayTest(unittest.TestCase):
         self.settings = {"notify_new_app": True, "notify_leak": False, "notify_quota": False}
         self.pulse.once()
         self.assertEqual(self.tray.balloons, [], "新程序只提醒一次，关着的时候就算提醒过了")
+
+    def test_stale_or_undated_quota_does_not_consume_new_day_slot(self) -> None:
+        self.alerts = [{"kind": "total", "stats_day": "2026-10-22"}, {"kind": "total"}]
+        self.pulse.once()
+        self.assertEqual(self.tray.balloons, [])
+        self.assertEqual(self.pulse.quota_shown, set())
+        self.alerts = [{"kind": "total", "stats_day": self.today.isoformat()}]
+        self.pulse.once()
+        self.assertEqual(len(self.tray.balloons), 1)
+
+    def test_midnight_during_alert_read_ignores_old_day_event(self) -> None:
+        def read_alerts():
+            self.today = date(2026, 10, 24)
+            return [{"kind": "total", "stats_day": "2026-10-23"}]
+
+        self.pulse._alerts = read_alerts
+        self.pulse.once()
+        self.assertEqual(self.tray.balloons, [])
+        self.assertEqual(self.pulse.quota_shown, set())
+        self.assertEqual(self.pulse.quota_day, self.today)
+
+    def test_midnight_during_alert_read_rearms_for_new_day_event(self) -> None:
+        self.alerts = [{"kind": "total", "stats_day": self.today.isoformat()}]
+        self.pulse.once()
+
+        def read_alerts():
+            self.today = date(2026, 10, 24)
+            return [{"kind": "total", "stats_day": self.today.isoformat()}]
+
+        self.pulse._alerts = read_alerts
+        self.pulse.once()
+        self.pulse.once()
+        self.assertEqual(len(self.tray.balloons), 2)
 
     def test_tray_errors_are_contained(self) -> None:
         class Broken(FakeTray):

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import threading
 import time
+from datetime import date
 from typing import Any, Callable
 
 from .store import PERIODS
@@ -38,10 +39,12 @@ class RankCache:
         *,
         ttl: float = RANK_TTL,
         clock: Callable[[], float] = time.monotonic,
+        local_day: Callable[[], date] = date.today,
     ) -> None:
         self._compute = compute
         self._ttl = ttl
         self._clock = clock
+        self._local_day = local_day
         self._lock = threading.Lock()
         self._busy: dict[str, threading.Lock] = {}
         self._cache: dict[str, tuple[float, int, dict[str, Any]]] = {}
@@ -50,7 +53,8 @@ class RankCache:
 
     def _fresh(self, period: str) -> dict[str, Any] | None:
         hit = self._cache.get(period)
-        if hit and hit[1] == self._gen and self._clock() - hit[0] < self._ttl:
+        if (hit and hit[1] == self._gen and self._clock() - hit[0] < self._ttl
+                and (period != "today" or hit[2].get("stats_day") == self._local_day().isoformat())):
             return hit[2]
         return None
 
@@ -68,12 +72,21 @@ class RankCache:
                 if hit is not None:
                     return hit
                 gen = self._gen
-            value = self._compute(period)
-            with self._lock:
-                self.computes += 1
-                if gen == self._gen:
-                    self._cache[period] = (self._clock(), gen, value)
-            return value
+            for _ in range(2):
+                day = self._local_day() if period == "today" else None
+                value = self._compute(period)
+                finished_day = self._local_day() if period == "today" else None
+                with self._lock:
+                    self.computes += 1
+                    if day == finished_day:
+                        if day is not None:
+                            value = {**value, "stats_day": day.isoformat()}
+                        if gen == self._gen:
+                            self._cache[period] = (self._clock(), gen, value)
+                        return value
+                # A read spanning midnight has no unambiguous calendar day. Retry
+                # once; never date or cache those totals as the new day's usage.
+            return {**value, "stats_day": ""}
 
     def invalidate(self) -> None:
         with self._lock:
@@ -138,7 +151,9 @@ def _status(state: dict[str, Any], store: Any) -> dict[str, Any]:
     return status
 
 
-def snapshot_alerts(state: dict[str, Any], store: Any, prefs: dict[str, Any]) -> list[dict[str, Any]]:
+def snapshot_alerts(
+    state: dict[str, Any], store: Any, prefs: dict[str, Any], *, local_day: Callable[[], date] = date.today,
+) -> list[dict[str, Any]]:
     """New-app alerts are read at response time, not from the collector's stale copy."""
     cached=[a for a in state.get("alerts") or [] if a.get("kind")!="new"]
     skip={str(name).lower() for name in prefs.get("ignored") or []}
@@ -146,8 +161,10 @@ def snapshot_alerts(state: dict[str, Any], store: Any, prefs: dict[str, Any]) ->
     if prefs.get("show_new_banner",True):
         news=[{"kind":"new","process":str(x.get("process") or ""),"ts":int(x.get("ts") or 0)}
               for x in store.recent_new()[-6:] if str(x.get("process") or "").lower() not in skip]
+    today = local_day().isoformat()
+    cached=[a for a in cached if a.get("kind") not in {"total", "program"} or a.get("stats_day") == today]
     return ([a for a in cached if a.get("kind")=="leak"] + news
-            + [a for a in cached if a.get("kind")!="leak"])[:12]
+            + [a for a in cached if a.get("kind")!="leak"])
 
 
 def build_view(

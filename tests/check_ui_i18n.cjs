@@ -43,5 +43,5 @@ vm.runInContext('translateStaticUi(root)',context);
 assert.equal(text.nodeValue,'Starting…');assert.equal(code.nodeValue,'const label="实时";');
 assert.equal(field.attributes.placeholder,'Search apps or websites');assert.equal(field.value,'中文.example');
 assert.ok(script.includes('const restoreLanguageView=!!history.state?.fmLanguageSwitch'));
-assert.ok(script.includes('if(restoreLanguageView) {'));
+assert.ok(script.includes('if(restoreSavedView || restoreLanguageView) {'));
 console.log('PASS localization: English default, Chinese, template data safety, persistence, view preservation, storage denial, unsaved form guard, static attributes');
